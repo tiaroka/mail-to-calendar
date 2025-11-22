@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>メール文面コピペ → GPT解析 → ICS生成 + Googleカレンダー登録</title>
+  <style>
+    /* 基本スタイル */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      background: #f7f7f7;
+      line-height: 1.5;
+    }
+    .container {
+      background: #fff; 
+      padding: 1rem;
+      border: 1px solid #ccc;
+      max-width: 700px;
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+    /* 見出し */
+    h1 {
+      font-size: 1.5rem;
+      margin-top: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    h2 {
+      font-size: 1.2rem;
+    }
+    /* フォーム要素 */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    textarea {
+      width: 100%;
+      height: 120px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      padding: 0.75rem;
+      box-sizing: border-box;
+      font-size: 1rem;
+    }
+    /* 基本ボタンスタイル */
+    button {
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      margin-right: 0.5rem;
+      cursor: pointer;
+      border-radius: 8px;
+      border: none;
+      font-weight: bold;
+      min-height: 44px; /* タッチターゲットサイズ */
+      transition: all 0.2s;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    
+    /* 主要アクション - 最も重要なボタン */
+    .btn-primary {
+      background-color: #0366d6;
+      color: white;
+      font-size: 1rem;
+    }
+    .btn-primary:hover {
+      background-color: #0256b9;
+    }
+    
+    /* 二次アクション - 通常のボタン */
+    .btn-secondary {
+      background-color: #0366d6;
+      color: white;
+      font-size: 0.9rem;
+    }
+    .btn-secondary:hover {
+      background-color: #0256b9;
+    }
+    
+    /* 補助アクション - 控えめなボタン */
+    .btn-tertiary {
+      background-color: #f8f9fa;
+      color: #0366d6;
+      border: 1px solid #dadce0;
+      font-size: 0.85rem;
+      font-weight: normal;
+    }
+    .btn-tertiary:hover {
+      background-color: #f1f3f4;
+    }
+    .collapsed {
+      display: none;
+    }
+    .collapsible-toggle {
+      color: #0366d6; 
+      text-decoration: underline;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-size: 1rem;
+      margin: 0;
+      padding: 0.5rem 0;
+      display: block;
+      width: 100%;
+      text-align: left;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+    input[type="text"],
+    input[type="datetime-local"],
+    textarea {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 1rem;
+      box-sizing: border-box;
+      min-height: 44px; /* タッチターゲットサイズ */
+    }
+    
+    /* レスポンシブ対応 */
+    @media (max-width: 768px) {
+      body {
+        margin: 0;
+      }
+      .container {
+        padding: 1rem;
+        border: none;
+        border-radius: 0;
+      }
+      h1 {
+        font-size: 1.3rem;
+        text-align: center;
+      }
+      button {
+        width: 100%;
+        margin-right: 0;
+      }
+    }
+    
+    /* 結果表示領域 */
+    #parseResult {
+      white-space: pre-wrap; 
+      background: #fafafa; 
+      padding: 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      overflow-x: auto;
+    }
+    
+    /* Google連携リンク - より小さく控えめに */
+    .google-link {
+      display: inline-block;
+      background-color: #f8f9fa;
+      color: #4285F4;
+      text-decoration: none;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: normal;
+      margin-bottom: 1rem;
+      border: 1px solid #dadce0;
+    }
+    .google-link:hover {
+      background-color: #f1f3f4;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>メール文面から予定を作成</h1>
+
+    <!-- Googleアカウント連携用のリンク - 控えめに -->
+    <div class="form-group" style="text-align: right;">
+      <a href="/auth/google" class="google-link">
+        Googleカレンダーと連携する
+      </a>
+    </div>
+
+    <!-- メール本文の入力 -->
+    <div class="form-group">
+      <label for="emailContent">メール内容（コピペ）:</label>
+      <textarea id="emailContent" placeholder="ここにメール文面をコピペしてください..."></textarea>
+    </div>
+
+    <!-- GPT解析ボタン - 最も重要な主要アクション -->
+    <div class="form-group">
+      <button id="parseBtn" class="btn-primary">GPTで解析する</button>
+    </div>
+
+    <!-- 解析結果表示用 -->
+    <div class="form-group">
+      <div id="parseResult"></div>
+    </div>
+
+    <!-- 折りたたみ領域（詳細設定） - デフォルトでは非表示 -->
+    <button type="button" class="collapsible-toggle" id="toggleOptions">▼ 詳細設定を表示</button>
+    <div id="optionsArea" class="collapsed">
+      <h2>詳細設定（必要な場合のみ修正）</h2>
+      <div class="form-group">
+        <label for="title">タイトル:</label>
+        <input type="text" id="title" placeholder="(解析結果が自動入力)" />
+      </div>
+      <div class="form-group">
+        <label for="location">場所:</label>
+        <input type="text" id="location" placeholder="(解析結果が自動入力)" />
+      </div>
+      <div class="form-group">
+        <label for="startTime">開始日時:</label>
+        <input type="datetime-local" id="startTime" step="1" />
+      </div>
+      <div class="form-group">
+        <label for="endTime">終了日時:</label>
+        <input type="datetime-local" id="endTime" step="1" />
+      </div>
+      <div class="form-group">
+        <label for="description">説明:</label>
+        <textarea id="description" rows="3" placeholder="(詳細説明)"></textarea>
+      </div>
+    </div>
+
+    <!-- ICSファイルのダウンロード＆Googleカレンダー登録ボタン -->
+    <div class="form-group action-buttons">
+      <button id="downloadBtn" class="btn-secondary" disabled>ICSファイルをダウンロード</button>
+      <button id="googleCreateBtn" class="btn-secondary" disabled>Googleカレンダーに登録</button>
+    </div>
+  </div>
+
+  <script>
+    let globalEmailContent = '';
+
+    const parseBtn = document.getElementById('parseBtn');
+    const parseResultDiv = document.getElementById('parseResult');
+    const toggleOptionsBtn = document.getElementById('toggleOptions');
+    const optionsArea = document.getElementById('optionsArea');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const googleCreateBtn = document.getElementById('googleCreateBtn');
+
+    const titleInput = document.getElementById('title');
+    const locationInput = document.getElementById('location');
+    const startTimeInput = document.getElementById('startTime');
+    const endTimeInput = document.getElementById('endTime');
+    const descriptionInput = document.getElementById('description');
+
+    // 通知関数 - モバイルフレンドリーな通知
+    function showNotification(message, isError = false) {
+      const notificationDiv = document.createElement('div');
+      notificationDiv.textContent = message;
+      notificationDiv.style.position = 'fixed';
+      notificationDiv.style.bottom = '20px';
+      notificationDiv.style.left = '50%';
+      notificationDiv.style.transform = 'translateX(-50%)';
+      notificationDiv.style.backgroundColor = isError ? '#f44336' : '#4CAF50';
+      notificationDiv.style.color = 'white';
+      notificationDiv.style.padding = '12px 24px';
+      notificationDiv.style.borderRadius = '8px';
+      notificationDiv.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+      notificationDiv.style.zIndex = '1000';
+      notificationDiv.style.maxWidth = '90%';
+      notificationDiv.style.textAlign = 'center';
+      
+      document.body.appendChild(notificationDiv);
+      
+      setTimeout(() => {
+        notificationDiv.style.opacity = '0';
+        notificationDiv.style.transition = 'opacity 0.5s';
+        setTimeout(() => {
+          document.body.removeChild(notificationDiv);
+        }, 500);
+      }, 3000);
+    }
+
+    // 折りたたみ
+    // 詳細設定の折りたたみ - 初期状態は非表示
+    optionsArea.classList.add('collapsed');
+    toggleOptionsBtn.textContent = '▼ 詳細設定を表示';
+    
+    toggleOptionsBtn.addEventListener('click', () => {
+      if (optionsArea.classList.contains('collapsed')) {
+        optionsArea.classList.remove('collapsed');
+        toggleOptionsBtn.textContent = '▲ 詳細設定を隠す';
+      } else {
+        optionsArea.classList.add('collapsed');
+        toggleOptionsBtn.textContent = '▼ 詳細設定を表示';
+      }
+    });
+
+    // GPT解析
+    parseBtn.addEventListener('click', async () => {
+      parseResultDiv.textContent = '解析中...';
+      parseBtn.disabled = true;
+      parseBtn.textContent = '解析中...';
+
+      const emailContent = document.getElementById('emailContent').value.trim();
+      if (!emailContent) {
+        parseResultDiv.textContent = 'メール内容が空です。予定に関する情報を含むメール文面をコピペしてください。';
+        parseBtn.disabled = false;
+        parseBtn.textContent = 'GPTで解析する';
+        return;
+      }
+
+      globalEmailContent = emailContent;
+
+      try {
+        const resp = await fetch('/api/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({ emailContent }),
+        });
+
+        if (!resp.ok) {
+          const errorText = await resp.text();
+          parseResultDiv.textContent = `解析失敗: ${errorText}`;
+          showNotification('解析に失敗しました', true);
+          parseBtn.disabled = false;
+          parseBtn.textContent = 'GPTで解析する';
+          return;
+        }
+
+        const result = await resp.json();
+        
+        // 解析結果をわかりやすく表示
+        const formattedResult = `
+タイトル: ${result.title || '(取得できませんでした)'}
+場所: ${result.location || '(取得できませんでした)'}
+開始日時: ${result.startTime || '(取得できませんでした)'}
+終了日時: ${result.endTime || '(取得できませんでした)'}
+説明: ${result.description || '(取得できませんでした)'}
+        `;
+        
+        parseResultDiv.textContent = formattedResult;
+
+        // 開始時刻/終了時刻が "YYYY-MM-DDTHH:mm" だったら ":00" を補う
+        function ensureSeconds(str) {
+          if (!str) return '';
+          // 正規表現で "2025-01-01T12:34" 形式をチェック
+          if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(str)) {
+            return str + ':00';
+          }
+          return str;
+        }
+
+        titleInput.value = result.title || '';
+        locationInput.value = result.location || '';
+        if (result.startTime) {
+          startTimeInput.value = ensureSeconds(result.startTime).slice(0, 19); 
+        }
+        if (result.endTime) {
+          endTimeInput.value = ensureSeconds(result.endTime).slice(0, 19);
+        }
+        descriptionInput.value = result.description || '';
+
+        downloadBtn.disabled = false;
+        googleCreateBtn.disabled = false;
+        
+        // 解析結果のみ表示（詳細設定は自動表示しない）
+        
+        showNotification('解析が完了しました');
+      } catch (err) {
+        console.error(err);
+        parseResultDiv.textContent = 'エラーが発生しました。ネットワーク接続を確認してください。';
+        showNotification('エラーが発生しました', true);
+      } finally {
+        parseBtn.disabled = false;
+        parseBtn.textContent = 'GPTで解析する';
+      }
+    });
+
+    // ICSダウンロード
+    downloadBtn.addEventListener('click', async () => {
+      downloadBtn.disabled = true;
+      downloadBtn.textContent = 'ダウンロード中...';
+      
+      const eventData = {
+        title: titleInput.value.trim(),
+        location: locationInput.value.trim(),
+        startTime: startTimeInput.value,  // "YYYY-MM-DDTHH:mm:ss"
+        endTime: endTimeInput.value,
+        description: descriptionInput.value.trim(),
+        emailContent: globalEmailContent
+      };
+
+      try {
+        const resp = await fetch('/api/create-ics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify(eventData),
+        });
+        if (!resp.ok) {
+          showNotification('ICSファイル作成に失敗しました', true);
+          return;
+        }
+
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'event.ics';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        
+        showNotification('ICSファイルをダウンロードしました');
+      } catch (err) {
+        console.error(err);
+        showNotification('エラーが発生しました', true);
+      } finally {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'ICSファイルをダウンロード';
+      }
+    });
+
+    // Googleカレンダーに直接登録
+    googleCreateBtn.addEventListener('click', async () => {
+      googleCreateBtn.disabled = true;
+      googleCreateBtn.textContent = '登録中...';
+      
+      const eventData = {
+        title: titleInput.value.trim(),
+        location: locationInput.value.trim(),
+        startTime: startTimeInput.value,
+        endTime: endTimeInput.value,
+        description: descriptionInput.value.trim(),
+        emailContent: globalEmailContent 
+      };
+
+      try {
+        const resp = await fetch('/api/google-calendar-create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify(eventData),
+        });
+        if (!resp.ok) {
+          const errorData = await resp.json();
+          showNotification('Googleカレンダー登録失敗: ' + (errorData.error || '不明なエラー'), true);
+          return;
+        }
+        const result = await resp.json();
+        showNotification('Googleカレンダーに予定を登録しました');
+      } catch (err) {
+        console.error(err);
+        showNotification('エラーが発生しました', true);
+      } finally {
+        googleCreateBtn.disabled = false;
+        googleCreateBtn.textContent = 'Googleカレンダーに登録';
+      }
+    });
+    
+    // ページ読み込み時にURLパラメータを確認
+    document.addEventListener('DOMContentLoaded', () => {
+      // URLにauth_successパラメータがある場合、通知を表示
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('auth_success')) {
+        showNotification('Googleアカウントとの連携に成功しました');
+      }
+    });
+  </script>
+</body>
+</html>
