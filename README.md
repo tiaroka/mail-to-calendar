@@ -417,7 +417,7 @@ MIT License - 詳細は[LICENSE](LICENSE)ファイルを参照
 
 ## 👤 作者
 
-Toru Ishii(ti@aroka.net)
+Toru Ishii
 
 ## 謝辞
 
