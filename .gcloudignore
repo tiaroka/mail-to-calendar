@@ -38,6 +38,9 @@ tests/
 logs/
 *.log
 
+# Document
+documents
+
 # OS files
 .DS_Store
 Thumbs.db

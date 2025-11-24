@@ -13,6 +13,7 @@ const app = express();
 // ==================== 2) 環境変数 (Google API) ====================
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const PRODUCTION_HOST = process.env.PRODUCTION_HOST || '';
 
 // リダイレクトURIを実行環境に基づいて設定
 let REDIRECT_URI;
@@ -59,17 +60,43 @@ app.use(express.json({
   type: ['application/json', 'application/json; charset=utf-8']
 }));
 
-// セッション管理
+// SESSION_SECRETのフォールバック処理
+const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
+  const crypto = require('crypto');
+  console.warn('WARNING: SESSION_SECRET is not set. Using random secret.');
+  return crypto.randomBytes(32).toString('hex');
+})();
+
+// セッション管理（セキュリティオプション強化）
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: SESSION_SECRET,
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production', // 本番ではHTTPS必須
+    httpOnly: true,  // XSS対策
+    maxAge: 24 * 60 * 60 * 1000  // 24時間
+  }
 }));
 
 // ===================== ここで express.static(...) は使わない =====================
 // app.use(express.static(path.join(__dirname, 'public')));
 
-// ==================== 4) ログイン必須ミドルウェア ====================
+// ==================== 4) ヘルパー関数 ====================
+
+/**
+ * リクエスト元のホスト名に基づいて適切なリダイレクトURIを返す
+ */
+function getRedirectUri(req) {
+  const hostName = req.get('host');
+
+  if (hostName === PRODUCTION_HOST) {
+    return `https://${PRODUCTION_HOST}/auth/google/callback`;
+  }
+  return REDIRECT_URI;
+}
+
+// ==================== 5) ログイン必須ミドルウェア ====================
 function requireLogin(req, res, next) {
   // セッションに user が無ければ Google OAuth に誘導
   if (!req.session.user) {
@@ -78,18 +105,19 @@ function requireLogin(req, res, next) {
   next();
 }
 
-// ==================== 5) "/" ルート: ログイン必須 ====================
+// ==================== 6) "/" ルート: ログイン必須 ====================
 app.get('/', requireLogin, (req, res) => {
   // ログイン済みなら public/index.html を返す
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ==================== 6) OpenAI 初期化 ====================
+// ==================== 7) OpenAI 初期化 ====================
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
+  apiKey: process.env.OPENAI_API_KEY || '',
+  timeout: 30000  // 30秒タイムアウト
 });
 
-// ==================== 7) クライアント設定エンドポイント ====================
+// ==================== 8) クライアント設定エンドポイント ====================
 app.get('/api/config', (req, res) => {
   res.json({
     googleClientId: CLIENT_ID,
@@ -97,7 +125,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// ==================== 8) 認証必須の例: /secured ====================
+// ==================== 9) 認証必須の例: /secured ====================
 app.get('/secured', async (req, res) => {
   try {
     const authHeader = req.headers.authorization || '';
@@ -114,7 +142,7 @@ app.get('/secured', async (req, res) => {
   }
 });
 
-// ==================== 8) /api/parse (GPT 解析) ====================
+// ==================== 10) /api/parse (GPT 解析) ====================
 app.post('/api/parse', async (req, res, next) => {
   try {
     const { emailContent } = req.body;
@@ -216,11 +244,31 @@ app.post('/api/parse', async (req, res, next) => {
     }
 
   } catch (error) {
-    next(error);
+    console.error('OpenAI API Error:', error);
+
+    // エラーの種類に応じてユーザーフレンドリーなメッセージを返す
+    if (error.status === 429) {
+      return res.status(429).json({
+        error: 'APIの利用制限に達しました。しばらく待ってから再試行してください。'
+      });
+    } else if (error.status === 401) {
+      return res.status(500).json({
+        error: 'API設定に問題があります。管理者にお問い合わせください。'
+      });
+    } else if (error.status >= 500) {
+      return res.status(500).json({
+        error: 'AIサービスで一時的な問題が発生しています。しばらく待ってから再試行してください。'
+      });
+    }
+
+    return res.status(500).json({
+      error: 'メール解析中にエラーが発生しました。',
+      ...(process.env.NODE_ENV === 'development' && { details: error.message })
+    });
   }
 });
 
-// ==================== 9) /api/create-ics (ICS生成) ====================
+// ==================== 11) /api/create-ics (ICS生成) ====================
 app.post('/api/create-ics', (req, res, next) => {
   try {
     const { title, location, startTime, endTime, description, emailContent } = req.body;
@@ -287,7 +335,7 @@ function escapeICS(str) {
     .replace(/(.{70})/g, '$1\r\n ');  // 長い行を折り返し
 }
 
-// ==================== 10) Google連携 (OAuth) ====================
+// ==================== 12) Google連携 (OAuth) ====================
 
 // A) OAuth認可URL
 app.get('/auth/google', (req, res) => {
@@ -311,19 +359,12 @@ app.get('/auth/google', (req, res) => {
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile'
   ];
-  
+
   // リダイレクトURIをリクエスト元のホストに基づいて決定
-  const hostName = req.get('host');
-  let dynamicRedirectUri;
+  const dynamicRedirectUri = getRedirectUri(req);
 
-  if (hostName === 'calendar.aroka.net') {
-    dynamicRedirectUri = 'https://calendar.aroka.net/auth/google/callback';
-  } else {
-    dynamicRedirectUri = REDIRECT_URI;
-  }
+  console.log('Using redirect URI for host', req.get('host'), ':', dynamicRedirectUri);
 
-  console.log('Using redirect URI for host', hostName, ':', dynamicRedirectUri);
-  
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
@@ -340,17 +381,10 @@ app.get('/auth/google/callback', async (req, res) => {
   }
   try {
     // リダイレクトURIをリクエスト元のホストに基づいて決定
-    const hostName = req.get('host');
-    let dynamicRedirectUri;
+    const dynamicRedirectUri = getRedirectUri(req);
 
-    if (hostName === 'calendar.aroka.net') {
-      dynamicRedirectUri = 'https://calendar.aroka.net/auth/google/callback';
-    } else {
-      dynamicRedirectUri = REDIRECT_URI;
-    }
+    console.log('Using redirect URI for callback on host', req.get('host'), ':', dynamicRedirectUri);
 
-    console.log('Using redirect URI for callback on host', hostName, ':', dynamicRedirectUri);
-    
     // 1) トークン取得（リダイレクトURIを明示的に指定）
     const { tokens } = await oauth2Client.getToken({
       code,
@@ -430,14 +464,26 @@ app.post('/api/google-calendar-create', async (req, res, next) => {
     });
   } catch (err) {
     console.error('Google Calendar Insert Error:', err);
+
+    // ユーザーフレンドリーなメッセージに変換
+    let userMessage = 'カレンダーへの登録に失敗しました。';
+    if (err.code === 401) {
+      userMessage = '認証の有効期限が切れました。再度ログインしてください。';
+    } else if (err.code === 403) {
+      userMessage = 'カレンダーへのアクセス権限がありません。';
+    } else if (err.code === 404) {
+      userMessage = '指定されたカレンダーが見つかりません。';
+    }
+
     return res.status(500).json({
-      error: 'Failed to create event',
-      details: err.message
+      error: userMessage,
+      // detailsは開発環境のみ
+      ...(process.env.NODE_ENV === 'development' && { details: err.message })
     });
   }
 });
 
-// ==================== 11) エラーハンドリング ====================
+// ==================== 13) エラーハンドリング ====================
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(500).json({
@@ -446,7 +492,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ==================== 12) サーバ起動 ====================
+// ==================== 14) サーバ起動 ====================
 const PORT = process.env.PORT || 8080;
 // テスト用に app をエクスポート
 module.exports = app;

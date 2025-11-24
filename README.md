@@ -1,47 +1,133 @@
 # CalDAV Calendar Event Generator
 
-メール文面から予定情報を自動抽出し、ICSファイル生成やGoogleカレンダーへの直接登録ができるWebアプリケーションです。
+AI駆動のカレンダーイベント生成ツール。メール文面から予定情報を自動抽出し、ICSファイル生成やGoogleカレンダーへの直接登録ができます。
 
-## 機能
+## 📖 概要
 
-- 📧 **メール文面の自動解析**: OpenAI GPT-3.5-turboを使用してメール内容から予定情報を抽出
-- 📅 **ICSファイル生成**: 標準的なカレンダー形式（iCalendar）でイベントをエクスポート
-- 🔗 **Googleカレンダー連携**: OAuth認証を通じて直接カレンダーに予定を登録
-- 📱 **レスポンシブデザイン**: モバイルデバイスにも対応したUI
-- 🔒 **セキュアな認証**: Google Identity Servicesを使用した安全な認証
+### 背景と課題
 
-## 技術スタック
+メールで受け取った予定を手動でカレンダーに入力するのは時間がかかり、ミスも発生しやすい作業です。特に：
 
-- **Backend**: Node.js, Express.js
+- 日時や場所を読み取って、正確に入力する手間
+- 年が省略されている場合の推測ミス
+- 複数のカレンダーアプリに対応する煩雑さ
+
+このツールは、OpenAI GPTの力を借りて、メール本文から予定情報を自動抽出し、ワンクリックでカレンダーに登録できるようにします。
+
+### 主な機能
+
+- 📧 **AIによる自動解析**: メール本文から予定情報（タイトル、日時、場所、説明）を抽出
+- 🗓️ **賢い年次推測**: 年が省略されている場合、現在日付を基準に最も近い未来の日付を推測
+- 📅 **ICSファイル生成**: 標準的なiCalendar形式でエクスポート（Outlook、Apple Calendar等に対応）
+- 🔗 **Googleカレンダー連携**: OAuth認証を通じて直接カレンダーに登録
+- 🔒 **セキュアな実装**: セッション管理、HTTPS、XSS対策など、本番運用を考慮した設計
+
+## 💡 使い方デモ
+
+### 実際のメール例
+
+以下のようなメール文面を貼り付けるだけで、予定情報を自動抽出します：
+
+```
+件名: プロジェクトキックオフミーティング
+
+12月25日（水）14:00から、本社会議室Aにて
+新プロジェクトのキックオフミーティングを開催します。
+
+参加必須です。よろしくお願いします。
+```
+
+### 解析結果
+
+| 項目 | 抽出された値 |
+|------|------------|
+| タイトル | プロジェクトキックオフミーティング |
+| 場所 | 本社会議室A |
+| 開始日時 | 2025-12-25T14:00:00 |
+| 終了日時 | 2025-12-25T15:00:00 *(自動計算)* |
+| 説明 | 参加必須です。よろしくお願いします。 |
+
+**年次推測の例:**
+- 現在が2025年11月の場合、「12月25日」→ `2025年12月25日`
+- 現在が2025年11月の場合、「1月15日」→ `2026年1月15日` *(未来の日付として推測)*
+
+### 使い方の流れ
+
+1. **Googleアカウントと連携** - OAuth認証でログイン
+2. **メール内容を貼り付け** - テキストエリアにコピペ
+3. **GPTで解析** - ボタンをクリックして自動抽出
+4. **結果を確認・編集** - 必要に応じて修正
+5. **登録** - ICSダウンロードまたはGoogleカレンダーに直接登録
+
+## 🔧 技術的特徴
+
+### 1. GPT Function Calling による構造化データ抽出
+
+従来のプロンプトベースではなく、OpenAIのFunction Calling機能を使用して、予定情報を確実にJSON形式で取得します。
+
+```javascript
+{
+  "title": "...",
+  "location": "...",
+  "startTime": "2025-12-25T14:00:00",  // ISO 8601形式
+  "endTime": "2025-12-25T15:00:00"
+}
+```
+
+### 2. 動的な年次推測
+
+システムプロンプトに現在の日付とロジックを埋め込み、GPTに年の推測をさせます：
+
+```
+現在の日付: 2025年11月24日
+
+重要な指示:
+- メール本文に年が書かれていない場合は、現在の日付を基準に、
+  最も近い未来の日付を推測してください
+- 例: 現在が11月で、メールに「12月25日」→ 2025年12月25日
+- 例: 現在が11月で、メールに「1月15日」→ 2026年1月15日
+```
+
+### 3. セキュリティ実装
+
+- **セッション管理**: HttpOnly/Secure/SameSite属性でXSS・CSRF対策
+- **環境変数化**: 機密情報は`.env`で管理、ハードコード一切なし
+- **エラーハンドリング**: 本番環境では詳細なエラーを隠蔽、開発環境のみ表示
+- **API制限**: OpenAI APIに30秒タイムアウトを設定
+
+### 4. Cloud Run対応
+
+- Dockerコンテナ化
+- ステートレスなセッション管理（将来的にFirestore等に対応可能）
+- 動的ポート対応（`process.env.PORT`）
+
+## 🛠️ 技術スタック
+
+- **Backend**: Node.js 18+, Express.js
 - **AI**: OpenAI GPT-3.5-turbo (Function Calling)
 - **認証**: Google OAuth 2.0, Google Identity Services
-- **Calendar**: Google Calendar API, iCalendar (ICS)
-- **Frontend**: Vanilla JavaScript, React (認証プロキシ)
-- **デプロイ**: Google Cloud Run
+- **Calendar**: Google Calendar API, iCalendar (ICS形式)
+- **Frontend**: Vanilla JavaScript（シンプルな実装）
+- **Infrastructure**: Google Cloud Run, Docker
 
-## セットアップ
+## 📦 セットアップ
 
 ### 前提条件
 
 - Node.js 18.0.0以上
 - npm
-- Google Cloud アカウント
-- OpenAI APIアカウント
+- Google Cloud アカウント（[無料枠あり](https://cloud.google.com/free)）
+- OpenAI APIアカウント（[取得はこちら](https://platform.openai.com/)）
 
-### 1. リポジトリのクローン
+### 1. リポジトリのクローンと依存関係のインストール
 
 ```bash
 git clone https://github.com/yourusername/caldav-calendar-generator.git
 cd caldav-calendar-generator
-```
-
-### 2. 依存関係のインストール
-
-```bash
 npm install
 ```
 
-### 3. 環境変数の設定
+### 2. 環境変数の設定
 
 `.env.example`をコピーして`.env`を作成します：
 
@@ -49,38 +135,23 @@ npm install
 cp .env.example .env
 ```
 
-以下の環境変数を設定してください：
+`.env`ファイルを編集して、以下を設定：
 
-#### OpenAI API Key
+```bash
+# OpenAI API Key (https://platform.openai.com/ で取得)
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
 
-[OpenAI Platform](https://platform.openai.com/)でAPIキーを取得
-
-```
-OPENAI_API_KEY=your-openai-api-key-here
-```
-
-#### Google OAuth認証情報
-
-[Google Cloud Console](https://console.cloud.google.com/)で以下を設定：
-
-1. 新しいプロジェクトを作成
-2. Google Calendar APIを有効化
-3. OAuth 2.0クライアントIDを作成（Webアプリケーション）
-4. 承認済みのリダイレクトURIを追加：
-   - ローカル: `http://localhost:8080/auth/google/callback`
-   - 本番: `https://yourdomain.com/auth/google/callback`
-
-```
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
+# Google OAuth認証情報 (https://console.cloud.google.com/ で取得)
+GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxx
 GOOGLE_REDIRECT_URI=http://localhost:8080/auth/google/callback
-```
 
-#### その他の設定
-
-```
-# セッションシークレット（ランダムな文字列を生成）
+# セッションシークレット（32文字以上のランダムな文字列を推奨）
 SESSION_SECRET=your-very-long-random-string-here
+
+# 本番環境のホスト名（オプション）
+# 本番環境で動的リダイレクトURIを使用する場合に設定
+# PRODUCTION_HOST=calendar.example.net
 
 # CORS許可オリジン（カンマ区切り）
 CORS_ORIGINS=http://localhost:8080
@@ -89,47 +160,23 @@ CORS_ORIGINS=http://localhost:8080
 PORT=8080
 ```
 
-### 4. アプリケーションの起動
+**Google OAuth認証情報の取得方法:**
+1. [Google Cloud Console](https://console.cloud.google.com/)でプロジェクトを作成
+2. 「APIとサービス」→「OAuth同意画面」を設定
+3. 「認証情報」→「認証情報を作成」→「OAuth 2.0クライアントID」
+4. 「承認済みのリダイレクトURI」に以下を追加:
+   - ローカル: `http://localhost:8080/auth/google/callback`
+   - 本番: `https://your-domain.com/auth/google/callback`
 
-#### 開発環境
+### 3. アプリケーションの起動
 
 ```bash
 npm start
 ```
 
-ブラウザで `http://localhost:8080` にアクセス
+ブラウザで `http://localhost:8080` にアクセスして動作確認。
 
-#### テスト実行
-
-```bash
-npm test
-```
-
-## 使い方
-
-### 1. Googleアカウントと連携
-
-右上の「Googleカレンダーと連携する」リンクをクリックして、Googleアカウントでログイン
-
-### 2. メール内容を貼り付け
-
-予定が記載されたメール文面をテキストエリアに貼り付け
-
-### 3. GPTで解析
-
-「GPTで解析する」ボタンをクリックして、AIに予定情報を抽出させる
-
-### 4. 結果を確認・編集
-
-解析結果を確認し、必要に応じて「詳細設定」から修正
-
-### 5. カレンダーに登録
-
-以下のいずれかを選択：
-- **ICSファイルをダウンロード**: 他のカレンダーアプリでインポート可能
-- **Googleカレンダーに登録**: 直接Googleカレンダーに予定を作成
-
-## デプロイ
+## 🚀 デプロイ
 
 ### Google Cloud Runへのデプロイ
 
@@ -139,82 +186,65 @@ npm test
 - Google Cloudプロジェクトが作成済み
 - Billing（課金）が有効化されている
 
-#### 方法1: デプロイスクリプトを使用（推奨）
-
-**Linux/Mac:**
-
-1. スクリプトに実行権限を付与
-
-```bash
-chmod +x deploy-cloud-run.sh
-```
-
-2. デプロイを実行
-
-```bash
-./deploy-cloud-run.sh YOUR_PROJECT_ID asia-northeast1 calendar-service
-```
+#### デプロイスクリプトを使用（推奨）
 
 **Windows (PowerShell):**
 
 ```powershell
-.\deploy-cloud-run.ps1 -ProjectId "YOUR_PROJECT_ID" -Region "asia-northeast1" -ServiceName "calendar-service"
+.\deploy-cloud-run.ps1 -ProjectId "YOUR_PROJECT_ID" -Region "asia-northeast1" -ServiceName "mail-to-calendar"
+```
+
+**Linux/Mac:**
+
+```bash
+chmod +x deploy-cloud-run.sh
+./deploy-cloud-run.sh YOUR_PROJECT_ID asia-northeast1 mail-to-calendar
 ```
 
 スクリプトが自動的に：
-- 環境変数を`.env`から読み込み
+- `.env`から環境変数を読み込み
 - Cloud Runにデプロイ
 - 必要な環境変数を設定
 - デプロイ後の手順を表示
 
-#### 方法2: 手動デプロイ
+#### Google Cloud Console での設定
 
-1. プロジェクトIDを設定
+デプロイ後、以下の設定を行ってください：
 
-```bash
-gcloud config set project YOUR_PROJECT_ID
-```
+##### 1. Google Calendar API を有効化
 
-2. Cloud Runにデプロイ
+1. [Google Cloud Console](https://console.cloud.google.com/) → 「APIとサービス」→「ライブラリ」
+2. 「Google Calendar API」を検索して有効化
 
-```bash
-gcloud run deploy calendar-service \
-  --source . \
-  --platform managed \
-  --region asia-northeast1 \
-  --allow-unauthenticated \
-  --set-env-vars "OPENAI_API_KEY=your-key" \
-  --set-env-vars "GOOGLE_CLIENT_ID=your-client-id" \
-  --set-env-vars "GOOGLE_CLIENT_SECRET=your-secret" \
-  --set-env-vars "SESSION_SECRET=your-session-secret" \
-  --set-env-vars "GOOGLE_REDIRECT_URI=https://your-service-url/auth/google/callback" \
-  --set-env-vars "CORS_ORIGINS=https://your-service-url"
-```
+##### 2. OAuth 2.0 認証情報の更新
 
-#### デプロイ後の設定
+1. 「APIとサービス」→「認証情報」
+2. OAuth 2.0クライアントIDを選択
+3. 「承認済みのリダイレクトURI」に以下を追加:
+   ```
+   https://your-service-name-xxxxxxxxxx-xx.x.run.app/auth/google/callback
+   ```
+   ※ `your-service-name-xxxxxxxxxx-xx.x.run.app` は、デプロイ時に表示されたあなたのサービスURLに置き換えてください
 
-1. **Google OAuth認証情報の更新**
+##### 3. Cloud Run の環境変数を確認
 
-[Google Cloud Console](https://console.cloud.google.com/apis/credentials)で：
-   - OAuth 2.0クライアントIDを選択
-   - 「承認済みのリダイレクトURI」に以下を追加：
-     ```
-     https://your-service-url/auth/google/callback
-     ```
+Cloud Runコンソールで以下の環境変数が設定されているか確認：
 
-2. **環境変数の確認**
+- `OPENAI_API_KEY` ✓
+- `GOOGLE_CLIENT_ID` ✓
+- `GOOGLE_CLIENT_SECRET` ✓
+- `SESSION_SECRET` ✓
+- `GOOGLE_REDIRECT_URI` ✓
+- `CORS_ORIGINS` ✓
 
-Cloud Runコンソールで環境変数が正しく設定されているか確認：
-   - `OPENAI_API_KEY`
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - `SESSION_SECRET`
-   - `GOOGLE_REDIRECT_URI`
-   - `CORS_ORIGINS`
+##### 4. 動作確認
 
-3. **動作確認**
+デプロイされたURLにアクセスして、以下を確認：
 
-デプロイされたURLにアクセスして動作を確認
+- [ ] トップページが表示される
+- [ ] Google OAuth認証が正常に動作する
+- [ ] メール解析が動作する
+- [ ] Googleカレンダーへの登録が成功する
 
 #### トラブルシューティング
 
@@ -224,90 +254,168 @@ Cloud Runコンソールで環境変数が正しく設定されているか確�
 - `.gcloudignore`で必要なファイルが除外されていないか確認
 
 **アプリケーションが起動しない場合:**
-- Cloud Runのログを確認: `gcloud run logs read calendar-service --region=asia-northeast1`
+- Cloud Runのログを確認:
+  ```bash
+  gcloud run logs read YOUR_SERVICE_NAME --region=YOUR_REGION
+  ```
 - 環境変数が正しく設定されているか確認
-- PORT環境変数はCloud Runが自動設定するため不要
+- `PORT`環境変数はCloud Runが自動設定するため不要
 
 **OAuth認証エラー:**
 - リダイレクトURIが正確に一致しているか確認（末尾のスラッシュなど）
-- Google Cloud ConsoleでOAuth同意画面が正しく設定されているか確認
+- OAuth同意画面が正しく設定されているか確認
+- `PRODUCTION_HOST`を設定している場合、ホスト名が正確に一致しているか確認
 
-## プロジェクト構造
+## 📁 プロジェクト構造
 
 ```
 .
-├── app.js                  # メインアプリケーション
-├── verify-token.js         # JWT検証モジュール
-├── package.json            # 依存関係定義
-├── .env.example            # 環境変数テンプレート
-├── .gitignore             # Git除外設定
-├── auth-proxy/            # 認証プロキシ
-│   ├── auth-wrapper.js    # Google Identity Services統合
-│   └── index.html         # 認証プロキシHTML
-├── public/                # 公開ファイル
-│   └── index.html         # メインUI
-└── tests/                 # テストファイル
-    └── api.test.js        # APIテスト
-
+├── app.js                     # メインアプリケーション（Express サーバー）
+├── verify-token.js            # JWT検証モジュール
+├── package.json               # 依存関係定義
+├── Dockerfile                 # Cloud Run用Dockerイメージ
+├── deploy-cloud-run.sh        # デプロイスクリプト（Bash）
+├── deploy-cloud-run.ps1       # デプロイスクリプト（PowerShell）
+├── .env.example               # 環境変数テンプレート
+├── .gitignore                 # Git除外設定
+├── .gcloudignore              # Cloud Run除外設定
+├── public/
+│   └── index.html             # メインUI（カレンダー生成画面）
+└── tests/
+    └── api.test.js            # APIテスト
 ```
 
-## APIエンドポイント
+## 🔌 APIエンドポイント
 
-### `POST /api/parse`
-メール内容をGPTで解析し、イベント情報を抽出
+| エンドポイント | メソッド | 説明 |
+|--------------|---------|------|
+| `/` | GET | メインUI（要認証） |
+| `/api/config` | GET | クライアント設定（Client ID、Service URL） |
+| `/api/parse` | POST | メール内容をGPTで解析 |
+| `/api/create-ics` | POST | ICSファイルを生成 |
+| `/api/google-calendar-create` | POST | Googleカレンダーにイベントを作成（要認証） |
+| `/auth/google` | GET | Google OAuth認証フローを開始 |
+| `/auth/google/callback` | GET | Google OAuthコールバック |
 
-### `POST /api/create-ics`
-イベント情報からICSファイルを生成
+## 🔒 セキュリティに関する注意
 
-### `POST /api/google-calendar-create`
-Googleカレンダーにイベントを作成（要認証）
-
-### `GET /api/config`
-クライアント設定（Client ID、Service URL）を取得
-
-### `GET /auth/google`
-Google OAuth認証フローを開始
-
-### `GET /auth/google/callback`
-Google OAuthコールバック
-
-## セキュリティに関する注意
+### 環境変数の管理
 
 - `.env`ファイルは**絶対に**コミットしないでください
-- 本番環境では強力なセッションシークレットを使用してください
-- HTTPS経由でのみアプリケーションを公開してください
+- 本番環境では強力なセッションシークレットを使用してください（32文字以上のランダムな文字列を推奨）
+- `SESSION_SECRET`が未設定の場合、自動的にランダムなシークレットが生成されますが、**本番環境では必ず設定してください**（再起動時にセッションが無効になります）
 - APIキーは定期的にローテーションしてください
 
-## トラブルシューティング
+### 通信のセキュリティ
+
+- HTTPS経由でのみアプリケーションを公開してください
+- 本番環境では自動的にセッションクッキーに`Secure`フラグが設定されます
+- すべてのセッションクッキーに`HttpOnly`フラグが設定され、XSS攻撃から保護されます
+- セッションの有効期限は24時間に設定されています
+
+### API制限
+
+- OpenAI APIは30秒のタイムアウトが設定されています
+- レート制限に達した場合、ユーザーフレンドリーなエラーメッセージが表示されます
+- Google Calendar APIの認証エラーも日本語で表示されます
+
+## 🐛 トラブルシューティング
 
 ### Google OAuth認証エラー
 
 - Google Cloud ConsoleでリダイレクトURIが正しく設定されているか確認
 - `GOOGLE_REDIRECT_URI`環境変数が実際のURLと一致しているか確認
+- `PRODUCTION_HOST`を設定している場合、ホスト名が正確に一致しているか確認
 
 ### GPT解析が失敗する
 
+**エラーメッセージ別の対処法:**
+
+- **「APIの利用制限に達しました」**: OpenAI APIのレート制限に達しています。数分待ってから再試行してください
+- **「API設定に問題があります」**: `OPENAI_API_KEY`が無効または未設定です。環境変数を確認してください
+- **「AIサービスで一時的な問題が発生しています」**: OpenAI側のサーバーエラーです。しばらく待ってから再試行してください
+- **「メール解析中にエラーが発生しました」**: その他のエラーです。開発環境では詳細なエラーメッセージが表示されます
+
+**一般的な確認事項:**
 - OpenAI APIキーが有効か確認
 - APIの利用上限に達していないか確認
 - メール内容に予定情報が含まれているか確認
+- APIは30秒でタイムアウトします。非常に長いメール文面の場合は短縮してみてください
 
 ### Googleカレンダー登録エラー
 
+**エラーメッセージ別の対処法:**
+
+- **「Google認証されていません」**: OAuth認証が完了していません。「Googleカレンダーと連携する」から認証してください
+- **「認証の有効期限が切れました」**: セッションが期限切れです。再度ログインしてください
+- **「カレンダーへのアクセス権限がありません」**: OAuth認証時にカレンダーへのアクセスを許可していません。再認証してください
+- **「指定されたカレンダーが見つかりません」**: プライマリカレンダーにアクセスできません。Google Calendar設定を確認してください
+- **「カレンダーへの登録に失敗しました」**: その他のエラーです。開発環境では詳細なエラーメッセージが表示されます
+
+**一般的な確認事項:**
 - Google Calendar APIが有効になっているか確認
 - OAuth認証が完了しているか確認
-- 日時フォーマットが正しいか確認
+- 日時フォーマットが正しいか確認（ISO 8601形式: YYYY-MM-DDTHH:mm:ss）
 
-## ライセンス
+## 👨‍💻 開発者向け情報
+
+### カスタマイズポイント
+
+#### 1. GPTプロンプトの調整
+
+年次推測やイベント情報の抽出精度を変更したい場合は、`app.js`の`/api/parse`エンドポイント内のシステムプロンプトを編集してください。
+
+#### 2. タイムアウト設定
+
+```javascript
+// app.js:114-117
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '',
+  timeout: 30000  // ← ここを変更
+});
+```
+
+#### 3. セッション有効期限
+
+```javascript
+// app.js:70-79
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000  // ← ここを変更（ミリ秒）
+  }
+}));
+```
+
+### テスト実行
+
+```bash
+npm test
+```
+
+### 今後の拡張案
+
+- [ ] 複数のイベントを一度に抽出
+- [ ] Outlook Calendar、Apple Calendarへの直接連携
+- [ ] リマインダー設定
+- [ ] 定期的なイベントの対応
+- [ ] Firestore等を使ったセッション永続化
+
+## 📄 ライセンス
 
 MIT License - 詳細は[LICENSE](LICENSE)ファイルを参照
 
-## 貢献
+## 🙏 貢献
 
 プルリクエストを歓迎します。大きな変更の場合は、まずIssueを開いて変更内容を議論してください。
 
-## 作者
+## 👤 作者
 
-Toru Ishii
+Toru Ishii(ti@aroka.net)
 
 ## 謝辞
 
