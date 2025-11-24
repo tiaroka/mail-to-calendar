@@ -80,6 +80,7 @@ Write-Host ""
 
 # Create temporary env vars file for deployment
 $envVarsFile = ".env.cloud-run.yaml"
+$productionHost = if ($envVars.ContainsKey("PRODUCTION_HOST")) { $envVars["PRODUCTION_HOST"] } else { "" }
 $envVarsContent = @"
 OPENAI_API_KEY: "$($envVars['OPENAI_API_KEY'])"
 GOOGLE_CLIENT_ID: "$($envVars['GOOGLE_CLIENT_ID'])"
@@ -87,6 +88,7 @@ GOOGLE_CLIENT_SECRET: "$($envVars['GOOGLE_CLIENT_SECRET'])"
 SESSION_SECRET: "$($envVars['SESSION_SECRET'])"
 GOOGLE_REDIRECT_URI: "$redirectUri"
 CORS_ORIGINS: "$corsOrigins"
+PRODUCTION_HOST: "$productionHost"
 "@
 
 $envVarsContent | Out-File -FilePath $envVarsFile -Encoding UTF8

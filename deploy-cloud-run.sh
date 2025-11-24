@@ -87,7 +87,8 @@ gcloud run deploy $SERVICE_NAME \
     --set-env-vars "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" \
     --set-env-vars "SESSION_SECRET=$SESSION_SECRET" \
     --set-env-vars "GOOGLE_REDIRECT_URI=$REDIRECT_URI" \
-    --set-env-vars "CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}"
+    --set-env-vars "CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}" \
+    --set-env-vars "PRODUCTION_HOST=${PRODUCTION_HOST:-}"
 
 # Get the deployed service URL
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')

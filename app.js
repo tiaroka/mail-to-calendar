@@ -86,9 +86,10 @@ app.use(session({
 
 /**
  * リクエスト元のホスト名に基づいて適切なリダイレクトURIを返す
+ * Cloud Runでカスタムドメインを使用する場合、X-Forwarded-Hostを優先的に使用
  */
 function getRedirectUri(req) {
-  const hostName = req.get('host');
+  const hostName = req.get('x-forwarded-host') || req.get('host');
 
   if (hostName === PRODUCTION_HOST) {
     return `https://${PRODUCTION_HOST}/auth/google/callback`;
