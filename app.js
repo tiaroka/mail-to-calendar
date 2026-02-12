@@ -34,12 +34,20 @@ if (process.env.GOOGLE_REDIRECT_URI) {
 
 console.log('Using redirect URI:', REDIRECT_URI);
 
-// OAuthクライアント作成
+// OAuthクライアント作成（認可URL生成用のみ。リクエスト処理にはcreateOAuth2Clientを使用）
 const oauth2Client = new google.auth.OAuth2(
   CLIENT_ID,
   CLIENT_SECRET,
   REDIRECT_URI
 );
+
+// リクエストごとに独立したOAuth2Clientを生成（共有状態バグ防止）
+function createOAuth2Client(redirectUri) {
+  return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, redirectUri || REDIRECT_URI);
+}
+
+// Cloud Run等リバースプロキシ背後での正しいプロトコル検出用
+app.set('trust proxy', true);
 
 // ==================== 3) ミドルウェア設定 ====================
 
@@ -75,6 +83,7 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production', // 本番ではHTTPS必須
     httpOnly: true,  // XSS対策
+    sameSite: 'lax', // CSRF対策
     maxAge: 24 * 60 * 60 * 1000  // 24時間
   }
 }));
@@ -163,7 +172,7 @@ app.post('/api/parse', async (req, res, next) => {
     const currentMonth = now.getMonth() + 1;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -180,53 +189,56 @@ app.post('/api/parse', async (req, res, next) => {
         },
         { role: "user", content: emailContent }
       ],
-      functions: [{
-        name: "extract_event_info",
-        description: "メール本文からイベント情報を抽出する",
-        parameters: {
-          type: "object",
-          properties: {
-            title: {
-              type: "string",
-              description: "イベントのタイトル"
+      tools: [{
+        type: "function",
+        function: {
+          name: "extract_event_info",
+          description: "メール本文からイベント情報を抽出する",
+          parameters: {
+            type: "object",
+            properties: {
+              title: {
+                type: "string",
+                description: "イベントのタイトル"
+              },
+              location: {
+                type: "string",
+                description: "開催場所"
+              },
+              startTime: {
+                type: "string",
+                description: `開始日時（ISO 8601形式 YYYY-MM-DDTHH:mm:ss）。年が省略されている場合は、現在の日付（${currentYear}年${currentMonth}月）を基準に、最も近い未来の日付を使用してください。`
+              },
+              endTime: {
+                type: "string",
+                description: `終了日時（ISO 8601形式 YYYY-MM-DDTHH:mm:ss）。明示的な終了時刻が指定されていない場合は、開始時刻の1時間後を設定してください。年が省略されている場合は、開始日時と同じ年を使用してください。`
+              },
+              description: {
+                type: "string",
+                description: "イベントの説明"
+              }
             },
-            location: {
-              type: "string",
-              description: "開催場所"
-            },
-            startTime: {
-              type: "string",
-              description: `開始日時（ISO 8601形式 YYYY-MM-DDTHH:mm:ss）。年が省略されている場合は、現在の日付（${currentYear}年${currentMonth}月）を基準に、最も近い未来の日付を使用してください。`
-            },
-            endTime: {
-              type: "string",
-              description: `終了日時（ISO 8601形式 YYYY-MM-DDTHH:mm:ss）。明示的な終了時刻が指定されていない場合は、開始時刻の1時間後を設定してください。年が省略されている場合は、開始日時と同じ年を使用してください。`
-            },
-            description: {
-              type: "string",
-              description: "イベントの説明"
-            }
-          },
-          required: ["title", "startTime", "endTime"]
+            required: ["title", "startTime", "endTime"]
+          }
         }
       }],
-      function_call: { name: "extract_event_info" }
+      tool_choice: { type: "function", function: { name: "extract_event_info" } }
     });
 
-    // Function Calling使用時のレスポンス処理
-    const functionCall = response.choices[0].message.function_call;
-    if (!functionCall) {
+    // Tool Calls使用時のレスポンス処理
+    const toolCalls = response.choices[0].message.tool_calls;
+    if (!toolCalls || toolCalls.length === 0) {
       return res.status(200).json({
         title: '',
         location: '',
         startTime: '',
         endTime: '',
-        description: '【エラー】Function Callの応答が返されませんでした。'
+        description: '【エラー】Tool Callの応答が返されませんでした。'
       });
     }
 
     try {
-      const parsedData = JSON.parse(functionCall.arguments);
+      const parsedData = JSON.parse(toolCalls[0].function.arguments);
       return res.json({
         title: parsedData.title || '',
         location: parsedData.location || '',
@@ -240,7 +252,7 @@ app.post('/api/parse', async (req, res, next) => {
         location: '',
         startTime: '',
         endTime: '',
-        description: `【JSONパースエラー】Function Callの応答:\n${functionCall.arguments}`
+        description: `【JSONパースエラー】Tool Callの応答:\n${toolCalls[0].function.arguments}`
       });
     }
 
@@ -296,28 +308,32 @@ function createICS(title, location, startTime, endTime, description, emailConten
   const escDescription = escapeICS(description || '');
   const escEmailBody   = escapeICS(emailContent || '');
 
-  const fullDescription = `${escDescription}\n\n--- Original Email ---\n${escEmailBody}`;
+  const fullDescription = `${escDescription}\\n\\n--- Original Email ---\\n${escEmailBody}`;
 
-  return `BEGIN:VCALENDAR
-VERSION:2.0
-CALSCALE:GREGORIAN
-METHOD:PUBLISH
-PRODID:-//Example Inc.//Calendar Test//JA
-BEGIN:VEVENT
-UID:${uid}
-DTSTAMP:${dtStamp}
-SUMMARY:${escTitle}
-LOCATION:${escLocation}
-DESCRIPTION:${fullDescription}
-DTSTART:${dtStart}
-DTEND:${dtEnd}
-END:VEVENT
-END:VCALENDAR`;
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'PRODID:-//Example Inc.//Calendar Test//JA',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${dtStamp}`,
+    `SUMMARY:${escTitle}`,
+    `LOCATION:${escLocation}`,
+    `DESCRIPTION:${fullDescription}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ];
+  return lines.map(foldICSLine).join('\r\n');
 }
 
 function formatICSDate(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
   const YYYY = date.getUTCFullYear();
   const MM = String(date.getUTCMonth() + 1).padStart(2, '0');
   const DD = String(date.getUTCDate()).padStart(2, '0');
@@ -332,8 +348,30 @@ function escapeICS(str) {
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
     .replace(/,/g, '\\,')
-    .replace(/\n/g, '\\n')
-    .replace(/(.{70})/g, '$1\r\n ');  // 長い行を折り返し
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n');
+}
+
+// RFC 5545: 行を75オクテット以内に折り返す（プロパティ名を含む行全体に適用）
+function foldICSLine(line) {
+  const MAX_OCTETS = 75;
+  const bytes = Buffer.from(line, 'utf-8');
+  if (bytes.length <= MAX_OCTETS) return line;
+
+  const parts = [];
+  let start = 0;
+  let limit = MAX_OCTETS;
+  while (start < bytes.length) {
+    // マルチバイト文字の途中で切らないよう調整
+    let end = Math.min(start + limit, bytes.length);
+    while (end > start && (bytes[end] & 0xC0) === 0x80) {
+      end--;
+    }
+    parts.push(bytes.slice(start, end).toString('utf-8'));
+    start = end;
+    limit = MAX_OCTETS - 1; // 継続行は先頭にスペースが付くため1オクテット減
+  }
+  return parts.join('\r\n ');
 }
 
 // ==================== 12) Google連携 (OAuth) ====================
@@ -386,28 +424,28 @@ app.get('/auth/google/callback', async (req, res) => {
 
     console.log('Using redirect URI for callback on host', req.get('host'), ':', dynamicRedirectUri);
 
-    // 1) トークン取得（リダイレクトURIを明示的に指定）
-    const { tokens } = await oauth2Client.getToken({
-      code,
-      redirect_uri: dynamicRedirectUri
-    });
-    oauth2Client.setCredentials(tokens);
+    // 1) リクエストごとに独立したOAuth2Clientを生成
+    const requestOAuth2Client = createOAuth2Client(dynamicRedirectUri);
 
-    // 2) ユーザー情報を取得
+    // 2) トークン取得
+    const { tokens } = await requestOAuth2Client.getToken({ code });
+    requestOAuth2Client.setCredentials(tokens);
+
+    // 3) ユーザー情報を取得
     const oauth2 = google.oauth2({
       version: 'v2',
-      auth: oauth2Client
+      auth: requestOAuth2Client
     });
     const userInfo = await oauth2.userinfo.get(); // ここで { data: { email, name, ... } } が取れる
 
-    // 3) セッションに保存
+    // 4) セッションに保存
     req.session.googleTokens = tokens;
     req.session.user = {
       email: userInfo.data.email,
       name: userInfo.data.name
     };
 
-    // 4) 認証成功後にトップページへリダイレクト（パラメータ付き）
+    // 5) 認証成功後にトップページへリダイレクト（パラメータ付き）
     return res.redirect('/?auth_success=true');
   } catch (err) {
     console.error(err);
@@ -426,8 +464,9 @@ app.post('/api/google-calendar-create', async (req, res, next) => {
       return res.status(401).json({ error: 'Google認証されていません。' });
     }
 
-    oauth2Client.setCredentials(tokens);
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const requestOAuth2Client = createOAuth2Client();
+    requestOAuth2Client.setCredentials(tokens);
+    const calendar = google.calendar({ version: 'v3', auth: requestOAuth2Client });
 
     // 秒を補完する例
     function ensureSeconds(str) {
