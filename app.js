@@ -153,7 +153,7 @@ app.get('/secured', async (req, res) => {
 });
 
 // ==================== 10) /api/parse (GPT 解析) ====================
-app.post('/api/parse', async (req, res, next) => {
+app.post('/api/parse', requireLogin, async (req, res, next) => {
   try {
     const { emailContent } = req.body;
     if (!emailContent) {
@@ -282,7 +282,7 @@ app.post('/api/parse', async (req, res, next) => {
 });
 
 // ==================== 11) /api/create-ics (ICS生成) ====================
-app.post('/api/create-ics', (req, res, next) => {
+app.post('/api/create-ics', requireLogin, (req, res, next) => {
   try {
     const { title, location, startTime, endTime, description, emailContent } = req.body;
     const icsContent = createICS(title, location, startTime, endTime, description, emailContent);
@@ -298,7 +298,7 @@ app.post('/api/create-ics', (req, res, next) => {
 
 function createICS(title, location, startTime, endTime, description, emailContent) {
   const dtStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const uid = Date.now() + '@example.com';
+  const uid = require('crypto').randomUUID() + '@example.com';
 
   const dtStart = formatICSDate(startTime);
   const dtEnd   = formatICSDate(endTime);
@@ -378,19 +378,19 @@ function foldICSLine(line) {
 
 // A) OAuth認可URL
 app.get('/auth/google', (req, res) => {
-  // リダイレクトURIをデバッグ情報として表示（詳細追加版）
-  console.log('=== OAuth Debug Info ===');
-  console.log('CLIENT_ID:', CLIENT_ID ? 'Configured (hidden)' : 'Not configured');
-  console.log('CLIENT_SECRET:', CLIENT_SECRET ? 'Configured (hidden)' : 'Not configured');
-  console.log('REDIRECT_URI:', REDIRECT_URI);
-  console.log('Full URL:', `${req.protocol}://${req.get('host')}${req.originalUrl}`);
-  
-  // oauth2Clientの設定確認
-  console.log('OAuth Client Redirect URI:', oauth2Client.redirectUri);
-  console.log('OAuth Client settings:', {
-    redirectUri: oauth2Client.redirectUri
-  });
-  console.log('======================');
+  // デバッグ情報（本番環境では出力しない）
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('=== OAuth Debug Info ===');
+    console.log('CLIENT_ID:', CLIENT_ID ? 'Configured (hidden)' : 'Not configured');
+    console.log('CLIENT_SECRET:', CLIENT_SECRET ? 'Configured (hidden)' : 'Not configured');
+    console.log('REDIRECT_URI:', REDIRECT_URI);
+    console.log('Full URL:', `${req.protocol}://${req.get('host')}${req.originalUrl}`);
+    console.log('OAuth Client Redirect URI:', oauth2Client.redirectUri);
+    console.log('OAuth Client settings:', {
+      redirectUri: oauth2Client.redirectUri
+    });
+    console.log('======================');
+  }
 
   // userinfo 取得用に 'userinfo.email', 'userinfo.profile' も追加
   const scopes = [

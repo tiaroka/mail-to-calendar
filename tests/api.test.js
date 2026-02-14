@@ -1,6 +1,19 @@
 const request = require('supertest');
 const app = require('../app'); // app.js を読み込む
 
+// テスト用セッションセットアップ（認証済み状態を作る）
+app.get('/__test-login', (req, res) => {
+  req.session.user = { email: 'test@example.com', name: 'Test User' };
+  res.json({ ok: true });
+});
+
+let agent;
+
+beforeAll(async () => {
+  agent = request.agent(app);
+  await agent.get('/__test-login');
+});
+
 describe('POST /api/parse', () => {
   // テストケース1: 正常なメール本文
   it('should parse email content and return event info', async () => {
@@ -13,7 +26,7 @@ describe('POST /api/parse', () => {
       : currentYear;
 
     const emailContent = '会議 on 5/10 at 10:00 in 東京';
-    const response = await request(app)
+    const response = await agent
       .post('/api/parse')
       .send({ emailContent })
       .set('Content-Type', 'application/json');
@@ -26,7 +39,7 @@ describe('POST /api/parse', () => {
 
   // テストケース2: 空のメール本文
   it('should return 400 if emailContent is missing', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/parse')
       .send({})
       .set('Content-Type', 'application/json');
@@ -39,7 +52,7 @@ describe('POST /api/parse', () => {
 describe('POST /api/create-ics', () => {
   // Bug 1: CRLF インジェクションでプロパティが注入されないこと
   it('should not allow CRLF injection in title', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/create-ics')
       .send({
         title: 'Meeting\r\nATTENDEE:mailto:hacker@evil.com',
@@ -62,7 +75,7 @@ describe('POST /api/create-ics', () => {
 
   // Bug 2: DESCRIPTION 内に生改行が含まれないこと
   it('should not have raw newlines inside DESCRIPTION value', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/create-ics')
       .send({
         title: 'テスト会議',
@@ -86,7 +99,7 @@ describe('POST /api/create-ics', () => {
 
   // Bug 3: 不正な日付入力で NaN が出力されないこと
   it('should not output NaN for invalid date input', async () => {
-    const response = await request(app)
+    const response = await agent
       .post('/api/create-ics')
       .send({
         title: 'テスト',

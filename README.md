@@ -106,7 +106,7 @@ AI駆動のカレンダーイベント生成ツール。メール文面から予
 ## 🛠️ 技術スタック
 
 - **Backend**: Node.js 18+, Express.js
-- **AI**: OpenAI GPT-3.5-turbo (Function Calling)
+- **AI**: OpenAI GPT-4o-mini (Function Calling)
 - **認証**: Google OAuth 2.0, Google Identity Services
 - **Calendar**: Google Calendar API, iCalendar (ICS形式)
 - **Frontend**: Vanilla JavaScript（シンプルな実装）
