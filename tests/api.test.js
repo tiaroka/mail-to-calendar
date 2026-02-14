@@ -2,10 +2,14 @@ const request = require('supertest');
 const app = require('../app'); // app.js を読み込む
 
 // テスト用セッションセットアップ（認証済み状態を作る）
-app.get('/__test-login', (req, res) => {
-  req.session.user = { email: 'test@example.com', name: 'Test User' };
-  res.json({ ok: true });
-});
+// 重複登録防止ガード付き
+if (!app._testLoginRouteAdded) {
+  app.get('/__test-login', (req, res) => {
+    req.session.user = { email: 'test@example.com', name: 'Test User' };
+    res.json({ ok: true });
+  });
+  app._testLoginRouteAdded = true;
+}
 
 let agent;
 

@@ -185,7 +185,17 @@ app.post('/api/parse', requireLogin, async (req, res, next) => {
   - ${currentMonth}月より後なら ${currentYear}年12月25日
   - ${currentMonth}月より前なら ${currentYear + 1}年12月25日
 - 過去の日付にならないように注意してください
-- 日付が曖昧な場合は、常に未来の日付として解釈してください`
+- 日付が曖昧な場合は、常に未来の日付として解釈してください
+
+タイムゾーンの判定:
+- メール本文にタイムゾーン情報がある場合は、対応するIANAタイムゾーン名を返してください
+  - 標準略称: CET → Europe/Berlin, PST → America/Los_Angeles, EST → America/New_York, GMT → Europe/London
+  - UTC/GMTオフセット: UTC+1 → Europe/Berlin, GMT-8 → America/Los_Angeles
+  - 自然言語での指示: 「米西太平洋時間」→ America/Los_Angeles, 「バルセロナのタイムゾーン」→ Europe/Madrid
+  - 都市名・国名からの推測: 開催場所が海外都市の場合、その都市のタイムゾーンを使用
+    例: 「ベルリンのオフィスにて」→ Europe/Berlin, 「サンフランシスコ」→ America/Los_Angeles
+- タイムゾーン情報が一切ない場合は Asia/Tokyo を使用してください
+- 日時はそのタイムゾーンでのローカル時刻として返してください`
         },
         { role: "user", content: emailContent }
       ],
@@ -216,6 +226,10 @@ app.post('/api/parse', requireLogin, async (req, res, next) => {
               description: {
                 type: "string",
                 description: "イベントの説明"
+              },
+              timezone: {
+                type: "string",
+                description: "イベントのタイムゾーン（IANA形式、例: Asia/Tokyo, Europe/Berlin, America/Los_Angeles）。メール本文にタイムゾーン情報（CET, PST, UTC+9等）や海外都市名があれば対応するIANAタイムゾーンを設定。明示されていない場合はAsia/Tokyoを使用。"
               }
             },
             required: ["title", "startTime", "endTime"]
@@ -244,7 +258,8 @@ app.post('/api/parse', requireLogin, async (req, res, next) => {
         location: parsedData.location || '',
         startTime: parsedData.startTime || '',
         endTime: parsedData.endTime || '',
-        description: parsedData.description || ''
+        description: parsedData.description || '',
+        timezone: parsedData.timezone || 'Asia/Tokyo'
       });
     } catch (err) {
       return res.status(200).json({
@@ -284,8 +299,8 @@ app.post('/api/parse', requireLogin, async (req, res, next) => {
 // ==================== 11) /api/create-ics (ICS生成) ====================
 app.post('/api/create-ics', requireLogin, (req, res, next) => {
   try {
-    const { title, location, startTime, endTime, description, emailContent } = req.body;
-    const icsContent = createICS(title, location, startTime, endTime, description, emailContent);
+    const { title, location, startTime, endTime, description, emailContent, timezone } = req.body;
+    const icsContent = createICS(title, location, startTime, endTime, description, emailContent, timezone);
 
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="event.ics"');
@@ -296,7 +311,7 @@ app.post('/api/create-ics', requireLogin, (req, res, next) => {
   }
 });
 
-function createICS(title, location, startTime, endTime, description, emailContent) {
+function createICS(title, location, startTime, endTime, description, emailContent, timezone) {
   const dtStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const uid = require('crypto').randomUUID() + '@example.com';
 
@@ -322,8 +337,8 @@ function createICS(title, location, startTime, endTime, description, emailConten
     `SUMMARY:${escTitle}`,
     `LOCATION:${escLocation}`,
     `DESCRIPTION:${fullDescription}`,
-    `DTSTART;TZID=Asia/Tokyo:${dtStart}`,
-    `DTEND;TZID=Asia/Tokyo:${dtEnd}`,
+    `DTSTART;TZID=${timezone || 'Asia/Tokyo'}:${dtStart}`,
+    `DTEND;TZID=${timezone || 'Asia/Tokyo'}:${dtEnd}`,
     'END:VEVENT',
     'END:VCALENDAR'
   ];
@@ -454,7 +469,7 @@ app.post('/api/google-calendar-create', async (req, res, next) => {
   try {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-    let { title, location, startTime, endTime, description, emailContent } = req.body;
+    let { title, location, startTime, endTime, description, emailContent, timezone } = req.body;
     const tokens = req.session.googleTokens;
     if (!tokens) {
       return res.status(401).json({ error: 'Google認証されていません。' });
@@ -481,11 +496,11 @@ app.post('/api/google-calendar-create', async (req, res, next) => {
       description: `${description || ''}\n\n--- Original Email ---\n${emailContent || ''}`,
       start: {
         dateTime: startTime,
-        timeZone: 'Asia/Tokyo'
+        timeZone: timezone || 'Asia/Tokyo'
       },
       end: {
         dateTime: endTime,
-        timeZone: 'Asia/Tokyo'
+        timeZone: timezone || 'Asia/Tokyo'
       }
     };
 
@@ -546,6 +561,11 @@ if (process.env.NODE_ENV !== 'test') {
       console.log('Server closed');
       process.exit(0);
     });
+    // Cloud Runの猶予時間（10秒）内に収める安全マージン
+    setTimeout(() => {
+      console.warn('Forceful shutdown after timeout');
+      process.exit(1);
+    }, 8000);
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
