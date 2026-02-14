@@ -322,25 +322,21 @@ function createICS(title, location, startTime, endTime, description, emailConten
     `SUMMARY:${escTitle}`,
     `LOCATION:${escLocation}`,
     `DESCRIPTION:${fullDescription}`,
-    `DTSTART:${dtStart}`,
-    `DTEND:${dtEnd}`,
+    `DTSTART;TZID=Asia/Tokyo:${dtStart}`,
+    `DTEND;TZID=Asia/Tokyo:${dtEnd}`,
     'END:VEVENT',
     'END:VCALENDAR'
   ];
   return lines.map(foldICSLine).join('\r\n');
 }
 
+// ISO 8601文字列を直接パースしてICS日時形式に変換（サーバーTZ非依存）
 function formatICSDate(dateString) {
   if (!dateString) return '';
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return '';
-  const YYYY = date.getUTCFullYear();
-  const MM = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const DD = String(date.getUTCDate()).padStart(2, '0');
-  const HH = String(date.getUTCHours()).padStart(2, '0');
-  const mm = String(date.getUTCMinutes()).padStart(2, '0');
-  const ss = String(date.getUTCSeconds()).padStart(2, '0');
-  return `${YYYY}${MM}${DD}T${HH}${mm}${ss}Z`;
+  const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return '';
+  const [, YYYY, MM, DD, HH, mm, ss] = match;
+  return `${YYYY}${MM}${DD}T${HH}${mm}${ss || '00'}`;
 }
 
 function escapeICS(str) {
@@ -539,7 +535,18 @@ module.exports = app;
 
 // 本番ではサーバー起動（テストではスキップ）
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
   });
+
+  // グレースフルシャットダウン（Cloud RunはSIGTERMを送信する）
+  const shutdown = () => {
+    console.log('Shutting down gracefully...');
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
