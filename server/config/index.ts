@@ -46,7 +46,16 @@ export const config = {
     redirectUri: computeRedirectUri(),
     productionHost: process.env.PRODUCTION_HOST || '',
   },
-  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  llm: {
+    // .env の LLM_PROVIDER で選択（既定 openai）。単一キーは Secret Manager / .env から。
+    provider: (process.env.LLM_PROVIDER === 'anthropic' ? 'anthropic' : 'openai') as
+      | 'openai'
+      | 'anthropic',
+    openaiApiKey: process.env.OPENAI_API_KEY || '',
+    openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+    anthropicModel: process.env.ANTHROPIC_MODEL || 'claude-opus-4-8',
+  },
   sessionSecret: resolveSessionSecret(),
   corsOrigins: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())

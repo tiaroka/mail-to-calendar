@@ -1,13 +1,19 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import request from 'supertest';
 
-// ==================== テストの外部依存について ====================
-// /api/parse の正常系（LLM呼び出しを伴う）は、OpenAI 呼び出しがまだ route に
-// インラインのため決定的にモックしにくい。Phase 4 で LLM を service 層へ抽出し
-// 依存注入可能にした上で有効化する（下部の it.skip 参照）。
-//
-// テストは vitest.config.ts の env によりダミーキーで密閉化されており、
-// 万一 openai を呼んでも実APIには到達しない（.env の実キーは読み込まれない）。
+// ==================== LLM をモック化 ====================
+// LLM 呼び出しは server/services/llm へ抽象化済み。ESM なのでモジュール単位で
+// モックでき、実API・課金なしに /api/parse の配線を決定的に検証できる。
+vi.mock('../server/services/llm/index.js', () => ({
+  extractEventInfo: vi.fn(async () => ({
+    title: '会議',
+    location: '東京',
+    startTime: '2026-05-10T10:00:00',
+    endTime: '2026-05-10T11:00:00',
+    description: '打ち合わせ',
+    timezone: 'Asia/Tokyo',
+  })),
+}));
 
 const { default: app } = await import('../server/app.js');
 
@@ -29,9 +35,8 @@ beforeAll(async () => {
 });
 
 describe('POST /api/parse', () => {
-  // TODO(Phase 4): LLM を service 層へ抽出し依存注入可能にしたら、
-  // モックした抽出結果がレスポンスへ受け渡されることを検証する。
-  it.skip('should pass parsed event info through to the response (Phase 4で有効化)', async () => {
+  // モックした LLM の抽出結果がそのままレスポンスへ受け渡されること
+  it('should pass parsed event info through to the response', async () => {
     const emailContent = '会議 on 5/10 at 10:00 in 東京';
     const response = await agent
       .post('/api/parse')
@@ -39,8 +44,11 @@ describe('POST /api/parse', () => {
       .set('Content-Type', 'application/json');
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty('title');
-    expect(response.body).toHaveProperty('startTime');
+    expect(response.body).toHaveProperty('title', '会議');
+    expect(response.body).toHaveProperty('location', '東京');
+    expect(response.body).toHaveProperty('startTime', '2026-05-10T10:00:00');
+    expect(response.body).toHaveProperty('description', '打ち合わせ');
+    expect(response.body).toHaveProperty('timezone', 'Asia/Tokyo');
   });
 
   // 空のメール本文（LLM呼び出し前に 400 を返すためオフラインで検証可能）
