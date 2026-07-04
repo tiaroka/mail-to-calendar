@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { google } from 'googleapis';
 import { config } from '../config/index.js';
+import { requireLogin } from '../middleware/auth.js';
 import { createOAuth2Client } from '../services/google.js';
 import { ensureSeconds } from '../lib/datetime.js';
 import { DEFAULT_TIMEZONE } from '../../shared/types.js';
@@ -8,9 +9,9 @@ import { DEFAULT_TIMEZONE } from '../../shared/types.js';
 const router = Router();
 
 // Google カレンダーへ直接イベント作成。
-// NOTE(Phase 3): 現状は requireLogin を通さず手動トークンチェックのみ（挙動不変）。
-// Phase 3 で requireLogin を適用し全保護ルートの認証を統一する。
-router.post('/api/google-calendar-create', async (req: Request, res: Response) => {
+// requireLogin で認証を全保護ルートと統一。ログイン済みでもトークンが無い場合は
+// 手動チェックで 401 を返す（二段の防御）。
+router.post('/api/google-calendar-create', requireLogin, async (req: Request, res: Response) => {
   try {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
 

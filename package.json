@@ -28,6 +28,8 @@
   "author": "Toru Ishii",
   "license": "MIT",
   "dependencies": {
+    "@google-cloud/connect-firestore": "^3.0.0",
+    "@google-cloud/firestore": "^7.11.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

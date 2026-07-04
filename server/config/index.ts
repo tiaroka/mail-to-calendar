@@ -55,6 +55,13 @@ export const config = {
   serviceUrl: process.env.SERVICE_URL || '',
   /** 静的ファイル（public/）の絶対パス。プロジェクトルートから解決 */
   publicDir: path.resolve(process.cwd(), 'public'),
+  session: {
+    // 本番、または明示指定時のみ Firestore ストアを使う。
+    // ローカル/テストは MemoryStore（外部依存なし・密閉）にフォールバック。
+    useFirestore: isProd || process.env.USE_FIRESTORE_SESSIONS === 'true',
+    projectId: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '',
+    collection: process.env.SESSION_COLLECTION || 'sessions',
+  },
 } as const;
 
 export type AppConfig = typeof config;

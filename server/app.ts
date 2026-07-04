@@ -4,9 +4,9 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import session from 'express-session';
 
 import { config } from './config/index.js';
+import { buildSessionMiddleware } from './middleware/session.js';
 import { errorHandler } from './middleware/error.js';
 import pagesRouter from './routes/pages.js';
 import authRouter from './routes/auth.js';
@@ -36,19 +36,7 @@ app.use(
   }),
 );
 
-app.use(
-  session({
-    secret: config.sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: config.isProd, // 本番ではHTTPS必須
-      httpOnly: true, // XSS対策
-      sameSite: 'lax', // CSRF対策
-      maxAge: 24 * 60 * 60 * 1000, // 24時間
-    },
-  }),
-);
+app.use(buildSessionMiddleware());
 
 // ルーターのマウント
 app.use(pagesRouter);
