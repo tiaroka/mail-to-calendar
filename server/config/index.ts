@@ -70,6 +70,10 @@ export const config = {
     useFirestore: isProd || process.env.USE_FIRESTORE_SESSIONS === 'true',
     projectId: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '',
     collection: process.env.SESSION_COLLECTION || 'sessions',
+    // 使用する Firestore データベースID。空なら (default)。
+    // 既定DBが Datastore モードのプロジェクトでは、セッション用に別の
+    // Native モード名前付きDBを指定する（例: FIRESTORE_DATABASE_ID=sessions）。
+    databaseId: process.env.FIRESTORE_DATABASE_ID || '',
   },
 } as const;
 

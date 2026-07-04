@@ -23,14 +23,18 @@ export function buildSessionMiddleware() {
   if (config.session.useFirestore) {
     // Firestore は最初のRPCまで認証しないため、テスト等でこの分岐に入らなければ
     // 資格情報は不要。projectId 未指定時は ADC（実行環境）から解決される。
-    const firestore = new Firestore(
-      config.session.projectId ? { projectId: config.session.projectId } : {},
-    );
+    const firestoreOptions: FirebaseFirestore.Settings = {};
+    if (config.session.projectId) firestoreOptions.projectId = config.session.projectId;
+    if (config.session.databaseId) firestoreOptions.databaseId = config.session.databaseId;
+    const firestore = new Firestore(firestoreOptions);
     options.store = new FirestoreStore({
       dataset: firestore,
       kind: config.session.collection,
     });
-    logger.info('Session store: Firestore', { collection: config.session.collection });
+    logger.info('Session store: Firestore', {
+      collection: config.session.collection,
+      databaseId: config.session.databaseId || '(default)',
+    });
   } else {
     logger.info('Session store: MemoryStore (development/test)');
   }
