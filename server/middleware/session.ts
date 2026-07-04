@@ -5,6 +5,7 @@ import session from 'express-session';
 import { FirestoreStore } from '@google-cloud/connect-firestore';
 import { Firestore } from '@google-cloud/firestore';
 import { config } from '../config/index.js';
+import { logger } from '../lib/logger.js';
 
 export function buildSessionMiddleware() {
   const options: session.SessionOptions = {
@@ -29,9 +30,9 @@ export function buildSessionMiddleware() {
       dataset: firestore,
       kind: config.session.collection,
     });
-    console.log('Session store: Firestore (collection:', config.session.collection + ')');
+    logger.info('Session store: Firestore', { collection: config.session.collection });
   } else {
-    console.log('Session store: MemoryStore (development/test)');
+    logger.info('Session store: MemoryStore (development/test)');
   }
 
   return session(options);

@@ -1,7 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { google } from 'googleapis';
 import { config } from '../config/index.js';
+import { logger } from '../lib/logger.js';
 import { requireLogin } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import { calendarEventSchema } from '../schemas.js';
 import { createOAuth2Client } from '../services/google.js';
 import { ensureSeconds } from '../lib/datetime.js';
 import { DEFAULT_TIMEZONE } from '../../shared/types.js';
@@ -11,7 +14,11 @@ const router = Router();
 // Google カレンダーへ直接イベント作成。
 // requireLogin で認証を全保護ルートと統一。ログイン済みでもトークンが無い場合は
 // 手動チェックで 401 を返す（二段の防御）。
-router.post('/api/google-calendar-create', requireLogin, async (req: Request, res: Response) => {
+router.post(
+  '/api/google-calendar-create',
+  requireLogin,
+  validateBody(calendarEventSchema),
+  async (req: Request, res: Response) => {
   try {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -44,7 +51,7 @@ router.post('/api/google-calendar-create', requireLogin, async (req: Request, re
       eventId: response.data.id,
     });
   } catch (err: any) {
-    console.error('Google Calendar Insert Error:', err);
+    logger.error('Google Calendar Insert Error', { message: err?.message, code: err?.code });
     let userMessage = 'カレンダーへの登録に失敗しました。';
     if (err?.code === 401) {
       userMessage = '認証の有効期限が切れました。再度ログインしてください。';

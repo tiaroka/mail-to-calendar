@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 
 import { config } from './config/index.js';
+import { logger } from './lib/logger.js';
 import { buildSessionMiddleware } from './middleware/session.js';
 import { errorHandler } from './middleware/error.js';
 import pagesRouter from './routes/pages.js';
@@ -14,7 +15,7 @@ import parseRouter from './routes/parse.js';
 import icsRouter from './routes/ics.js';
 import calendarRouter from './routes/calendar.js';
 
-console.log('Using redirect URI:', config.google.redirectUri);
+logger.info('Using redirect URI', { redirectUri: config.google.redirectUri });
 
 const app = express();
 

@@ -1,22 +1,18 @@
 import { Router, type Request, type Response } from 'express';
 import { google } from 'googleapis';
 import { config } from '../config/index.js';
+import { logger } from '../lib/logger.js';
 import { authUrlClient, createOAuth2Client, getRedirectUri } from '../services/google.js';
 
 const router = Router();
 
 // A) OAuth 認可URLへリダイレクト
 router.get('/auth/google', (req: Request, res: Response) => {
-  if (!config.isProd) {
-    console.log('=== OAuth Debug Info ===');
-    console.log('CLIENT_ID:', config.google.clientId ? 'Configured (hidden)' : 'Not configured');
-    console.log(
-      'CLIENT_SECRET:',
-      config.google.clientSecret ? 'Configured (hidden)' : 'Not configured',
-    );
-    console.log('REDIRECT_URI:', config.google.redirectUri);
-    console.log('======================');
-  }
+  logger.debug('OAuth authorize', {
+    clientIdConfigured: Boolean(config.google.clientId),
+    clientSecretConfigured: Boolean(config.google.clientSecret),
+    redirectUri: config.google.redirectUri,
+  });
 
   const scopes = [
     'https://www.googleapis.com/auth/calendar',
@@ -56,8 +52,8 @@ router.get('/auth/google/callback', async (req: Request, res: Response) => {
     };
 
     return res.redirect('/?auth_success=true');
-  } catch (err) {
-    console.error(err);
+  } catch (err: any) {
+    logger.error('OAuth callback error', { message: err?.message });
     return res.status(500).send('Authentication Error');
   }
 });

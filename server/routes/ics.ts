@@ -1,5 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { requireLogin } from '../middleware/auth.js';
+import { validateBody } from '../middleware/validate.js';
+import { calendarEventSchema } from '../schemas.js';
 import { createICS } from '../services/ics.js';
 
 const router = Router();
@@ -8,6 +10,7 @@ const router = Router();
 router.post(
   '/api/create-ics',
   requireLogin,
+  validateBody(calendarEventSchema),
   (req: Request, res: Response, next: NextFunction) => {
     try {
       const { title, location, startTime, endTime, description, emailContent, timezone } =

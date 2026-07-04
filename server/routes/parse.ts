@@ -1,12 +1,14 @@
 // メール本文の LLM 解析。プロバイダ（OpenAI/Anthropic）は server/services/llm で抽象化。
 import { Router, type Request, type Response } from 'express';
 import { config } from '../config/index.js';
+import { logger } from '../lib/logger.js';
 import { requireLogin } from '../middleware/auth.js';
+import { parseRateLimiter } from '../middleware/rateLimit.js';
 import { extractEventInfo } from '../services/llm/index.js';
 
 const router = Router();
 
-router.post('/api/parse', requireLogin, async (req: Request, res: Response) => {
+router.post('/api/parse', requireLogin, parseRateLimiter, async (req: Request, res: Response) => {
   try {
     const { emailContent } = req.body ?? {};
     if (!emailContent) {
@@ -16,7 +18,7 @@ router.post('/api/parse', requireLogin, async (req: Request, res: Response) => {
     const info = await extractEventInfo(emailContent);
     return res.json(info);
   } catch (error: any) {
-    console.error('LLM parse error:', error);
+    logger.error('LLM parse error', { message: error?.message, status: error?.status });
     const status: number = error?.status;
     if (status === 429) {
       return res.status(429).json({
