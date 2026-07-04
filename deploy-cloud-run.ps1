@@ -41,12 +41,20 @@ Get-Content .env | ForEach-Object {
 }
 
 # Check required environment variables
-$requiredVars = @("OPENAI_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET")
+$requiredVars = @("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET")
 foreach ($var in $requiredVars) {
     if (-Not $envVars.ContainsKey($var) -or [string]::IsNullOrWhiteSpace($envVars[$var])) {
         Write-Host "Error: $var is not set in .env file" -ForegroundColor Red
         exit 1
     }
+}
+
+# LLM は OpenAI / Anthropic のいずれかのキーが必要
+$hasOpenAI = $envVars.ContainsKey("OPENAI_API_KEY") -and -not [string]::IsNullOrWhiteSpace($envVars["OPENAI_API_KEY"])
+$hasAnthropic = $envVars.ContainsKey("ANTHROPIC_API_KEY") -and -not [string]::IsNullOrWhiteSpace($envVars["ANTHROPIC_API_KEY"])
+if (-not $hasOpenAI -and -not $hasAnthropic) {
+    Write-Host "Error: OPENAI_API_KEY か ANTHROPIC_API_KEY のどちらかを .env に設定してください" -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "[OK] Environment variables loaded" -ForegroundColor Green
@@ -81,15 +89,23 @@ Write-Host ""
 # Create temporary env vars file for deployment
 $envVarsFile = ".env.cloud-run.yaml"
 $productionHost = if ($envVars.ContainsKey("PRODUCTION_HOST")) { $envVars["PRODUCTION_HOST"] } else { "" }
-$envVarsContent = @"
-OPENAI_API_KEY: "$($envVars['OPENAI_API_KEY'])"
-GOOGLE_CLIENT_ID: "$($envVars['GOOGLE_CLIENT_ID'])"
-GOOGLE_CLIENT_SECRET: "$($envVars['GOOGLE_CLIENT_SECRET'])"
-SESSION_SECRET: "$($envVars['SESSION_SECRET'])"
-GOOGLE_REDIRECT_URI: "$redirectUri"
-CORS_ORIGINS: "$corsOrigins"
-PRODUCTION_HOST: "$productionHost"
-"@
+$llmProvider = if ($envVars.ContainsKey("LLM_PROVIDER")) { $envVars["LLM_PROVIDER"] } else { "openai" }
+
+# NODE_ENV=production は必須（Firestore セッション・secure cookie を有効化）
+$lines = @()
+$lines += 'NODE_ENV: "production"'
+$lines += "GOOGLE_CLIENT_ID: `"$($envVars['GOOGLE_CLIENT_ID'])`""
+$lines += "GOOGLE_CLIENT_SECRET: `"$($envVars['GOOGLE_CLIENT_SECRET'])`""
+$lines += "SESSION_SECRET: `"$($envVars['SESSION_SECRET'])`""
+$lines += "GOOGLE_REDIRECT_URI: `"$redirectUri`""
+$lines += "CORS_ORIGINS: `"$corsOrigins`""
+$lines += "PRODUCTION_HOST: `"$productionHost`""
+$lines += "LLM_PROVIDER: `"$llmProvider`""
+if ($hasOpenAI) { $lines += "OPENAI_API_KEY: `"$($envVars['OPENAI_API_KEY'])`"" }
+if ($envVars.ContainsKey("OPENAI_MODEL")) { $lines += "OPENAI_MODEL: `"$($envVars['OPENAI_MODEL'])`"" }
+if ($hasAnthropic) { $lines += "ANTHROPIC_API_KEY: `"$($envVars['ANTHROPIC_API_KEY'])`"" }
+if ($envVars.ContainsKey("ANTHROPIC_MODEL")) { $lines += "ANTHROPIC_MODEL: `"$($envVars['ANTHROPIC_MODEL'])`"" }
+$envVarsContent = $lines -join "`n"
 
 $envVarsContent | Out-File -FilePath $envVarsFile -Encoding UTF8
 
@@ -134,5 +150,7 @@ Write-Host "3. Add the following to 'Authorized redirect URIs':"
 Write-Host "   $serviceUrl/auth/google/callback" -ForegroundColor Green
 Write-Host "4. Update your CORS_ORIGINS if needed:"
 Write-Host "   $serviceUrl" -ForegroundColor Green
+Write-Host "5. Sessions are stored in Firestore. The Cloud Run service account needs"
+Write-Host "   roles/datastore.user, and a Firestore (Native mode) database must exist." -ForegroundColor Green
 Write-Host ""
 Write-Host "Deployment successful!" -ForegroundColor Green

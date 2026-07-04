@@ -1,0 +1,17 @@
+# ビルドコンテキストから除外（イメージを小さく・ビルドを速く保つ）
+node_modules
+dist
+.git
+.gitignore
+.gcloudignore
+.dockerignore
+documents
+.env
+.env.*
+!.env.example
+*.log
+.claude
+.vscode
+.idea
+demo.gif
+README.md

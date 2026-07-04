@@ -23,6 +23,9 @@
 # Node modules (will be installed during build)
 node_modules/
 
+# Build output (rebuilt inside the container)
+dist/
+
 # Development files
 README.md
 LICENSE

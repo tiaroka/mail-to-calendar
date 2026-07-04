@@ -43,13 +43,19 @@ echo -e "${YELLOW}Loading environment variables from .env...${NC}"
 export $(cat .env | grep -v '^#' | xargs)
 
 # Check required environment variables
-REQUIRED_VARS=("OPENAI_API_KEY" "GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET" "SESSION_SECRET")
+REQUIRED_VARS=("GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET" "SESSION_SECRET")
 for VAR in "${REQUIRED_VARS[@]}"; do
     if [ -z "${!VAR}" ]; then
         echo -e "${RED}Error: $VAR is not set in .env file${NC}"
         exit 1
     fi
 done
+
+# LLM は OpenAI / Anthropic のいずれかのキーが必要
+if [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo -e "${RED}Error: OPENAI_API_KEY か ANTHROPIC_API_KEY のどちらかを .env に設定してください${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}✓ Environment variables loaded${NC}"
 echo ""
@@ -76,19 +82,30 @@ else
     REDIRECT_URI="$EXISTING_URL/auth/google/callback"
 fi
 
-# Deploy to Cloud Run
+# 環境変数を組み立てる（設定されているものだけ渡す）。
+# 区切りは @@（CORS_ORIGINS がカンマを含むため、gcloud のカスタムデリミタを使う）。
+# NODE_ENV=production は必須（Firestore セッション・secure cookie を有効化）。
+D="@@"
+ENV_VARS="NODE_ENV=production"
+ENV_VARS="${ENV_VARS}${D}GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+ENV_VARS="${ENV_VARS}${D}GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+ENV_VARS="${ENV_VARS}${D}SESSION_SECRET=$SESSION_SECRET"
+ENV_VARS="${ENV_VARS}${D}GOOGLE_REDIRECT_URI=$REDIRECT_URI"
+ENV_VARS="${ENV_VARS}${D}CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}"
+ENV_VARS="${ENV_VARS}${D}PRODUCTION_HOST=${PRODUCTION_HOST:-}"
+ENV_VARS="${ENV_VARS}${D}LLM_PROVIDER=${LLM_PROVIDER:-openai}"
+[ -n "$OPENAI_API_KEY" ] && ENV_VARS="${ENV_VARS}${D}OPENAI_API_KEY=$OPENAI_API_KEY"
+[ -n "$OPENAI_MODEL" ] && ENV_VARS="${ENV_VARS}${D}OPENAI_MODEL=$OPENAI_MODEL"
+[ -n "$ANTHROPIC_API_KEY" ] && ENV_VARS="${ENV_VARS}${D}ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+[ -n "$ANTHROPIC_MODEL" ] && ENV_VARS="${ENV_VARS}${D}ANTHROPIC_MODEL=$ANTHROPIC_MODEL"
+
+# Deploy to Cloud Run（Dockerfile を使ってコンテナビルド）
 gcloud run deploy $SERVICE_NAME \
     --source . \
     --platform managed \
     --region $REGION \
     --allow-unauthenticated \
-    --set-env-vars "OPENAI_API_KEY=$OPENAI_API_KEY" \
-    --set-env-vars "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
-    --set-env-vars "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" \
-    --set-env-vars "SESSION_SECRET=$SESSION_SECRET" \
-    --set-env-vars "GOOGLE_REDIRECT_URI=$REDIRECT_URI" \
-    --set-env-vars "CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}" \
-    --set-env-vars "PRODUCTION_HOST=${PRODUCTION_HOST:-}"
+    --set-env-vars "^@@^${ENV_VARS}"
 
 # Get the deployed service URL
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')
@@ -106,5 +123,8 @@ echo "3. Add the following to 'Authorized redirect URIs':"
 echo -e "   ${GREEN}$SERVICE_URL/auth/google/callback${NC}"
 echo "4. Update your CORS_ORIGINS if needed:"
 echo -e "   ${GREEN}$SERVICE_URL${NC}"
+echo "5. セッションは Firestore に保存されます。Cloud Run のサービスアカウントに"
+echo -e "   ${GREEN}roles/datastore.user${NC} 権限が必要です（未付与ならログインが保持されません）。"
+echo "   また Firestore(Native mode) データベースをプロジェクトに作成しておいてください。"
 echo ""
 echo -e "${GREEN}Deployment successful! 🎉${NC}"
