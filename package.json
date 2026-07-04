@@ -5,7 +5,9 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "jest"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -32,7 +34,9 @@
     "openai": "^4.80.1"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "supertest": "^7.1.0"
+    "@types/node": "^26.1.0",
+    "supertest": "^7.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }
