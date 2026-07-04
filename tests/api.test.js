@@ -2,17 +2,14 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 
 // ==================== テストの外部依存について ====================
-// app.js は CommonJS で openai / googleapis を require するため、Vitest の
-// vi.mock（および global.fetch スタブ）では app.js 内部の require を捕捉できない
-// （openai の CJS/ESM dual-package 境界が原因）。
-// そのため /api/parse の正常系（LLM呼び出しを伴う）テストは現状オフラインで
-// 決定的にモックできない。app.js を ESM 化し LLM をservice層へ抽出して
-// 依存注入可能にする Phase 4 で本テストを有効化する（下部の it.skip 参照）。
+// /api/parse の正常系（LLM呼び出しを伴う）は、OpenAI 呼び出しがまだ route に
+// インラインのため決定的にモックしにくい。Phase 4 で LLM を service 層へ抽出し
+// 依存注入可能にした上で有効化する（下部の it.skip 参照）。
 //
 // テストは vitest.config.ts の env によりダミーキーで密閉化されており、
 // 万一 openai を呼んでも実APIには到達しない（.env の実キーは読み込まれない）。
 
-const { default: app } = await import('../app.js');
+const { default: app } = await import('../server/app.js');
 
 // テスト用セッションセットアップ（認証済み状態を作る）
 // 重複登録防止ガード付き
