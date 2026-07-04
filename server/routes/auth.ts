@@ -33,7 +33,18 @@ router.get('/auth/google', (req: Request, res: Response) => {
 router.get('/auth/google/callback', async (req: Request, res: Response) => {
   const code = req.query.code as string | undefined;
   if (!code) {
-    return res.status(400).send('No code returned from Google');
+    // code が無い場合は Google 側のエラー（access_denied 等）を可視化する
+    const oauthError = req.query.error as string | undefined;
+    const oauthErrorDesc = req.query.error_description as string | undefined;
+    logger.warn('OAuth callback without code', {
+      queryKeys: Object.keys(req.query),
+      error: oauthError,
+      error_description: oauthErrorDesc,
+    });
+    const detail = oauthError
+      ? ` (error: ${oauthError}${oauthErrorDesc ? ` - ${oauthErrorDesc}` : ''})`
+      : ' (クエリに code も error もありません)';
+    return res.status(400).send(`No code returned from Google${detail}`);
   }
   try {
     const dynamicRedirectUri = getRedirectUri(req);
