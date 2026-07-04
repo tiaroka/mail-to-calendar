@@ -111,3 +111,6 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# TypeScript build output
+dist/

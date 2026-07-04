@@ -311,6 +311,10 @@ app.post('/api/create-ics', requireLogin, (req, res, next) => {
   }
 });
 
+// NOTE(Phase 1→2): 以下の createICS / formatICSDate / escapeICS / foldICSLine は
+// server/services/ics.ts・server/lib/datetime.ts へ TS 移植済み（ユニットテストあり）。
+// app.js を server/ へ ESM 移行する Phase 2 でこのインライン版を削除し import に置き換える。
+// それまで両者を同時に修正しないこと（server/ 側が正典）。
 function createICS(title, location, startTime, endTime, description, emailContent, timezone) {
   const dtStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const uid = require('crypto').randomUUID() + '@example.com';
