@@ -57,7 +57,7 @@ AI駆動のカレンダーイベント生成ツール。メール文面から予
 
 1. **Googleアカウントと連携** - OAuth認証でログイン
 2. **メール内容を貼り付け** - テキストエリアにコピペ
-3. **GPTで解析** - ボタンをクリックして自動抽出
+3. **AIで解析** - ボタンをクリックして自動抽出
 4. **結果を確認・編集** - 必要に応じて修正
 5. **登録** - ICSダウンロードまたはGoogleカレンダーに直接登録
 
@@ -99,18 +99,38 @@ AI駆動のカレンダーイベント生成ツール。メール文面から予
 
 ### 4. Cloud Run対応
 
-- Dockerコンテナ化
-- ステートレスなセッション管理（将来的にFirestore等に対応可能）
+- Dockerコンテナ化（multi-stage build）
+- **Firestore セッションストア**（本番）で複数インスタンス・再起動に耐えるステートレス構成。開発/テストは MemoryStore に自動フォールバック
 - 動的ポート対応（`process.env.PORT`）
+
+### 5. LLM プロバイダの抽象化とハイブリッド解析
+
+- サーバー側は **OpenAI / Anthropic** を service 層で抽象化し、`LLM_PROVIDER` で切替
+- フロント側は **Chrome 組み込みAI（Gemini Nano）** を第1候補に端末内実行（無料・高速・プライベート）。
+  小型モデルのため信頼度が低い結果は自動でサーバー（高精度）へエスカレーション（「クラウドで解析し直す」ボタンも常設）
 
 ## 🛠️ 技術スタック
 
-- **Backend**: Node.js 18+, Express.js
-- **AI**: OpenAI GPT-4o-mini (Function Calling)
-- **認証**: Google OAuth 2.0, Google Identity Services
+- **言語**: TypeScript（サーバー・フロント・共有型すべて）
+- **Backend**: Node.js 18+, Express.js（`server/` に config・routes・middleware・services を分離）
+- **AI（サーバー）**: OpenAI GPT-4o-mini / Anthropic Claude（Function Calling / Tool Use）
+- **AI（端末内）**: Chrome Prompt API（Gemini Nano）
+- **認証**: Google OAuth 2.0
 - **Calendar**: Google Calendar API, iCalendar (ICS形式)
-- **Frontend**: Vanilla JavaScript（シンプルな実装）
+- **セッション**: Firestore（本番）/ MemoryStore（開発）
+- **Frontend**: Vite + TypeScript（`web/`）
+- **バリデーション/その他**: zod, express-rate-limit, 構造化ロガー
+- **テスト**: Vitest（28ケース、外部APIはモック）
 - **Infrastructure**: Google Cloud Run, Docker
+
+## 📁 プロジェクト構成
+
+```
+server/   Express（config / app / server / middleware / routes / services{ics,google,llm} / lib）
+web/      Vite + TypeScript フロント（src/llm に端末内AIアダプタと解析オーケストレーション）
+shared/   front/back 共有の型（types.ts）
+tests/    Vitest（ICS純粋関数・API配線・解析オーケストレーション）
+```
 
 ## 📦 セットアップ
 
@@ -118,8 +138,8 @@ AI駆動のカレンダーイベント生成ツール。メール文面から予
 
 - Node.js 18.0.0以上
 - npm
-- Google Cloud アカウント（[無料枠あり](https://cloud.google.com/free)）
-- OpenAI APIアカウント（[取得はこちら](https://platform.openai.com/)）
+- Google Cloud アカウント（[無料枠あり](https://cloud.google.com/free)）／本番は Firestore(Native mode) を使用
+- OpenAI もしくは Anthropic の APIアカウント（どちらか一方でよい）
 
 ### 1. リポジトリのクローンと依存関係のインストール
 
@@ -140,8 +160,13 @@ cp .env.example .env
 `.env`ファイルを編集して、以下を設定：
 
 ```bash
-# OpenAI API Key (https://platform.openai.com/ で取得)
+# LLM プロバイダ（openai / anthropic のどちらか。既定 openai）
+LLM_PROVIDER=openai
+
+# OpenAI（LLM_PROVIDER=openai の場合）
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+# Anthropic（LLM_PROVIDER=anthropic の場合）
+# ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx
 
 # Google OAuth認証情報 (https://console.cloud.google.com/ で取得)
 GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
@@ -173,10 +198,22 @@ PORT=8080
 ### 3. アプリケーションの起動
 
 ```bash
+# ビルド（server: TS→dist / web: Vite→dist/public）して起動
 npm start
+
+# 開発時（ホットリロード）: 別ターミナルで2つ起動
+npm run dev        # サーバー（tsx watch, :8080）
+npm run dev:web    # フロント（Vite dev, /api・/auth は 8080 へプロキシ）
+
+# その他
+npm test           # Vitest（外部APIはモック・オフライン）
+npm run typecheck  # 型チェック
+npm run build      # server + web を dist へビルド
 ```
 
 ブラウザで `http://localhost:8080` にアクセスして動作確認。
+
+> **メモ**: サーバーの静的配信は `dist/public`（Viteビルド成果物）を配信します。`npm start` は起動前に自動ビルドします。
 
 ## 🚀 デプロイ
 
@@ -232,14 +269,23 @@ chmod +x deploy-cloud-run.sh
 
 Cloud Runコンソールで以下の環境変数が設定されているか確認：
 
-- `OPENAI_API_KEY` ✓
+- `NODE_ENV=production` ✓（**必須**。これがないと Firestore セッションに切り替わらず MemoryStore になる）
+- `LLM_PROVIDER`（openai / anthropic）と対応するキー（`OPENAI_API_KEY` または `ANTHROPIC_API_KEY`）✓
 - `GOOGLE_CLIENT_ID` ✓
 - `GOOGLE_CLIENT_SECRET` ✓
 - `SESSION_SECRET` ✓
 - `GOOGLE_REDIRECT_URI` ✓
 - `CORS_ORIGINS` ✓
 
-##### 4. 動作確認
+##### 4. Firestore の準備（セッション保存に必須）
+
+1. プロジェクトに **Firestore（Native mode）データベース** を作成
+2. Cloud Run のサービスアカウントに **`roles/datastore.user`** を付与
+   （未付与だとログインが保持されません）
+
+これらは `deploy-cloud-run.{sh,ps1}` の実行後にも案内が表示されます。
+
+##### 5. 動作確認
 
 デプロイされたURLにアクセスして、以下を確認：
 
@@ -272,19 +318,22 @@ Cloud Runコンソールで以下の環境変数が設定されているか確�
 
 ```
 .
-├── app.js                     # メインアプリケーション（Express サーバー）
-├── verify-token.js            # JWT検証モジュール
-├── package.json               # 依存関係定義
-├── Dockerfile                 # Cloud Run用Dockerイメージ
-├── deploy-cloud-run.sh        # デプロイスクリプト（Bash）
-├── deploy-cloud-run.ps1       # デプロイスクリプト（PowerShell）
-├── .env.example               # 環境変数テンプレート
-├── .gitignore                 # Git除外設定
-├── .gcloudignore              # Cloud Run除外設定
-├── public/
-│   └── index.html             # メインUI（カレンダー生成画面）
-└── tests/
-    └── api.test.js            # APIテスト
+├── server/                    # Express サーバー（TypeScript）
+│   ├── app.ts                 #   アプリ組み立て（ミドルウェア＋ルーターのマウント）
+│   ├── server.ts              #   起動＋グレースフルシャットダウン
+│   ├── config/index.ts        #   環境変数の集約・検証
+│   ├── middleware/            #   auth / session / validate / rateLimit / error
+│   ├── routes/                #   pages / auth / parse / ics / calendar
+│   ├── services/              #   ics / google / llm(openai・anthropic抽象化)
+│   └── lib/                   #   datetime / logger
+├── web/                       # フロント（Vite + TypeScript）
+│   ├── index.html
+│   └── src/                   #   main / api / ui / llm(onDeviceChrome・orchestration)
+├── shared/types.ts            # front/back 共有の型
+├── tests/                     # Vitest（ics / api / parse-orchestration）
+├── Dockerfile                 # Cloud Run用（multi-stage）
+├── deploy-cloud-run.{sh,ps1}  # デプロイスクリプト
+└── .env.example               # 環境変数テンプレート
 ```
 
 ## 🔌 APIエンドポイント
@@ -293,7 +342,7 @@ Cloud Runコンソールで以下の環境変数が設定されているか確�
 |--------------|---------|------|
 | `/` | GET | メインUI（要認証） |
 | `/api/config` | GET | クライアント設定（Client ID、Service URL） |
-| `/api/parse` | POST | メール内容をGPTで解析 |
+| `/api/parse` | POST | メール内容をAI(LLM)で解析（要認証・レート制限あり） |
 | `/api/create-ics` | POST | ICSファイルを生成 |
 | `/api/google-calendar-create` | POST | Googleカレンダーにイベントを作成（要認証） |
 | `/auth/google` | GET | Google OAuth認証フローを開始 |
@@ -363,35 +412,21 @@ Cloud Runコンソールで以下の環境変数が設定されているか確�
 
 ### カスタマイズポイント
 
-#### 1. GPTプロンプトの調整
+#### 1. 抽出プロンプト／ツールスキーマの調整
 
-年次推測やイベント情報の抽出精度を変更したい場合は、`app.js`の`/api/parse`エンドポイント内のシステムプロンプトを編集してください。
+年次推測やタイムゾーン判定などの抽出ロジックは `server/services/llm/prompt.ts`（システムプロンプトと抽出ツールのスキーマ、OpenAI/Anthropic共通）を編集してください。
 
-#### 2. タイムアウト設定
+#### 2. LLM プロバイダ／モデルの変更
 
-```javascript
-// app.js:114-117
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
-  timeout: 30000  // ← ここを変更
-});
-```
+`.env` の `LLM_PROVIDER`（openai / anthropic）、`OPENAI_MODEL` / `ANTHROPIC_MODEL` で切替。実装は `server/services/llm/{openai,anthropic}.ts`。
 
-#### 3. セッション有効期限
+#### 3. 端末内AI（Chrome）の挙動
 
-```javascript
-// app.js:70-79
-app.use(session({
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000  // ← ここを変更（ミリ秒）
-  }
-}));
-```
+`web/src/llm/onDeviceChrome.ts`（Prompt API 呼び出し）と `web/src/llm/index.ts`（信頼度ゲート・エスカレーション条件）を編集。
+
+#### 4. セッション（有効期限・ストア）
+
+`server/middleware/session.ts`（Firestore/MemoryStore 切替・cookie 設定）、`server/config/index.ts`（`session.*`）。
 
 ### テスト実行
 
@@ -405,7 +440,9 @@ npm test
 - [ ] Outlook Calendar、Apple Calendarへの直接連携
 - [ ] リマインダー設定
 - [ ] 定期的なイベントの対応
-- [ ] Firestore等を使ったセッション永続化
+- [x] Firestore等を使ったセッション永続化（実装済み）
+- [x] LLMプロバイダの抽象化（OpenAI/Anthropic）（実装済み）
+- [x] Chrome端末内AIによるオフライン・無料解析（実装済み）
 
 ## 📄 ライセンス
 
