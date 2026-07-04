@@ -1,18 +1,53 @@
 // フロント側の解析オーケストレーション。
-// Phase 5a: サーバー（LLM）のみ。
-// Phase 5b: Chrome 端末内AIを第1候補にし、信頼度ゲートでサーバーへ自動エスカレーション予定。
+// 端末内AI（Chrome）を第1候補とし、信頼度が低ければサーバー（LLM）へ自動エスカレーション。
+// 端末内モデルは小型で精度が落ちるため「最初の下書き」扱いとする。
 import type { EventInfo } from '../../../shared/types.js';
 import { parseEmailOnServer } from '../api.js';
+import { isOnDeviceAvailable, extractOnDevice } from './onDeviceChrome.js';
 
 export type ParseSource = 'server' | 'on-device';
+
+/** 解析の優先方針。auto=端末内優先＋低信頼度でサーバー補完 */
+export type ParsePreference = 'auto' | 'on-device' | 'server';
 
 export interface ParseResult {
   info: EventInfo;
   source: ParseSource;
+  /** 端末内で試みたが信頼度不足でサーバーへ切り替えたか */
+  escalated?: boolean;
+}
+
+/** 抽出結果が実用に足るか（信頼度ゲート）。必須項目と開始日時の妥当性で判定。 */
+function isConfident(info: EventInfo): boolean {
+  if (!info.title || !info.startTime || !info.endTime) return false;
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(info.startTime);
 }
 
 /** メール本文から予定情報を抽出する。 */
-export async function extractEvent(emailContent: string): Promise<ParseResult> {
-  const info = await parseEmailOnServer(emailContent);
-  return { info, source: 'server' };
+export async function extractEvent(
+  emailContent: string,
+  preference: ParsePreference = 'auto',
+): Promise<ParseResult> {
+  // クラウド固定
+  if (preference === 'server') {
+    return { info: await parseEmailOnServer(emailContent), source: 'server' };
+  }
+
+  // 端末内を試す（auto / on-device）
+  if (await isOnDeviceAvailable()) {
+    try {
+      const info = await extractOnDevice(emailContent);
+      if (preference === 'on-device' || isConfident(info)) {
+        return { info, source: 'on-device' };
+      }
+      // auto かつ低信頼度 → サーバーへエスカレーション
+      return { info: await parseEmailOnServer(emailContent), source: 'server', escalated: true };
+    } catch {
+      // 端末内失敗 → サーバーへフォールバック（auto のみ。on-device 固定でもサーバーで救済）
+      return { info: await parseEmailOnServer(emailContent), source: 'server', escalated: true };
+    }
+  }
+
+  // 端末内が使えない → サーバー
+  return { info: await parseEmailOnServer(emailContent), source: 'server' };
 }

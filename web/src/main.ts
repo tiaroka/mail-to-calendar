@@ -1,7 +1,7 @@
 import './styles.css';
 import type { CalendarEventInput } from '../../shared/types.js';
 import { createIcs, createGoogleEvent } from './api.js';
-import { extractEvent } from './llm/index.js';
+import { extractEvent, type ParsePreference, type ParseResult } from './llm/index.js';
 import { showNotification, ensureSeconds } from './ui.js';
 
 let globalEmailContent = '';
@@ -14,6 +14,8 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 const emailContentInput = $<HTMLTextAreaElement>('emailContent');
 const parseBtn = $<HTMLButtonElement>('parseBtn');
+const parsePrefSelect = $<HTMLSelectElement>('parsePref');
+const reparseCloudBtn = $<HTMLButtonElement>('reparseCloudBtn');
 const parseResultDiv = $<HTMLDivElement>('parseResult');
 const toggleOptionsBtn = $<HTMLButtonElement>('toggleOptions');
 const optionsArea = $<HTMLDivElement>('optionsArea');
@@ -48,8 +50,50 @@ function collectEventData(): CalendarEventInput {
   };
 }
 
-// 解析
-parseBtn.addEventListener('click', async () => {
+const SOURCE_LABEL: Record<ParseResult['source'], string> = {
+  'on-device': '端末内AI',
+  server: 'クラウド',
+};
+
+// 解析結果をフォームへ反映する
+function applyResult(result: ParseResult): void {
+  const { info, source, escalated } = result;
+  const sourceNote = `解析元: ${SOURCE_LABEL[source]}${escalated ? '（端末内から自動切替）' : ''}`;
+
+  parseResultDiv.textContent = `${sourceNote}
+タイトル: ${info.title || '(取得できませんでした)'}
+場所: ${info.location || '(取得できませんでした)'}
+開始日時: ${info.startTime || '(取得できませんでした)'}
+終了日時: ${info.endTime || '(取得できませんでした)'}
+タイムゾーン: ${info.timezone || 'Asia/Tokyo'}
+説明: ${info.description || '(取得できませんでした)'}
+  `;
+
+  titleInput.value = info.title || '';
+  locationInput.value = info.location || '';
+  if (info.startTime) startTimeInput.value = ensureSeconds(info.startTime).slice(0, 19);
+  if (info.endTime) endTimeInput.value = ensureSeconds(info.endTime).slice(0, 19);
+  descriptionInput.value = info.description || '';
+
+  const tz = info.timezone || 'Asia/Tokyo';
+  if (timezoneSelect.querySelector(`option[value="${tz}"]`)) {
+    timezoneSelect.value = tz;
+  } else {
+    const opt = document.createElement('option');
+    opt.value = tz;
+    opt.textContent = tz;
+    timezoneSelect.appendChild(opt);
+    timezoneSelect.value = tz;
+  }
+
+  downloadBtn.disabled = false;
+  googleCreateBtn.disabled = false;
+  // 端末内結果を採用した場合はクラウドで解析し直す導線を出す
+  reparseCloudBtn.classList.toggle('collapsed', source !== 'on-device');
+}
+
+// 解析の実行本体（優先方針を指定）
+async function runParse(preference: ParsePreference, button: HTMLButtonElement): Promise<void> {
   const emailContent = emailContentInput.value.trim();
   if (!emailContent) {
     parseResultDiv.textContent =
@@ -58,51 +102,29 @@ parseBtn.addEventListener('click', async () => {
   }
 
   parseResultDiv.textContent = '解析中...';
-  parseBtn.disabled = true;
-  parseBtn.textContent = '解析中...';
+  const prevLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = '解析中...';
   globalEmailContent = emailContent;
 
   try {
-    const { info } = await extractEvent(emailContent);
-
-    parseResultDiv.textContent = `
-タイトル: ${info.title || '(取得できませんでした)'}
-場所: ${info.location || '(取得できませんでした)'}
-開始日時: ${info.startTime || '(取得できませんでした)'}
-終了日時: ${info.endTime || '(取得できませんでした)'}
-タイムゾーン: ${info.timezone || 'Asia/Tokyo'}
-説明: ${info.description || '(取得できませんでした)'}
-    `;
-
-    titleInput.value = info.title || '';
-    locationInput.value = info.location || '';
-    if (info.startTime) startTimeInput.value = ensureSeconds(info.startTime).slice(0, 19);
-    if (info.endTime) endTimeInput.value = ensureSeconds(info.endTime).slice(0, 19);
-    descriptionInput.value = info.description || '';
-
-    const tz = info.timezone || 'Asia/Tokyo';
-    if (timezoneSelect.querySelector(`option[value="${tz}"]`)) {
-      timezoneSelect.value = tz;
-    } else {
-      const opt = document.createElement('option');
-      opt.value = tz;
-      opt.textContent = tz;
-      timezoneSelect.appendChild(opt);
-      timezoneSelect.value = tz;
-    }
-
-    downloadBtn.disabled = false;
-    googleCreateBtn.disabled = false;
+    applyResult(await extractEvent(emailContent, preference));
     showNotification('解析が完了しました');
   } catch (err) {
     console.error(err);
     parseResultDiv.textContent = `解析失敗: ${(err as Error).message}`;
     showNotification('解析に失敗しました', true);
   } finally {
-    parseBtn.disabled = false;
-    parseBtn.textContent = '解析する';
+    button.disabled = false;
+    button.textContent = prevLabel;
   }
-});
+}
+
+parseBtn.addEventListener('click', () =>
+  runParse(parsePrefSelect.value as ParsePreference, parseBtn),
+);
+// クラウドで解析し直す（端末内結果を上書き）
+reparseCloudBtn.addEventListener('click', () => runParse('server', reparseCloudBtn));
 
 // ICSダウンロード
 downloadBtn.addEventListener('click', async () => {
