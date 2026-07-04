@@ -31,6 +31,10 @@ app.use(
   }),
 );
 
+// Vite ビルド成果物（JS/CSS 等のアセット）を配信。
+// index.html は '/' ルートで requireLogin 越しに返すため index:false にする。
+app.use(express.static(config.publicDir, { index: false }));
+
 app.use(
   express.json({
     type: ['application/json', 'application/json; charset=utf-8'],

@@ -62,8 +62,8 @@ export const config = {
     : ['http://localhost:8080'],
   /** SERVICE_URL の明示指定（未指定時はリクエストのホストから算出） */
   serviceUrl: process.env.SERVICE_URL || '',
-  /** 静的ファイル（public/）の絶対パス。プロジェクトルートから解決 */
-  publicDir: path.resolve(process.cwd(), 'public'),
+  /** 静的ファイル（Viteビルド成果物）の絶対パス。dist/public を配信する */
+  publicDir: path.resolve(process.cwd(), 'dist', 'public'),
   session: {
     // 本番、または明示指定時のみ Firestore ストアを使う。
     // ローカル/テストは MemoryStore（外部依存なし・密閉）にフォールバック。

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>メール文面コピペ → 解析 → ICS生成 + Googleカレンダー登録</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>メール文面から予定を作成</h1>
+
+    <!-- Googleアカウント連携用のリンク -->
+    <div class="form-group" style="text-align: right;">
+      <a href="/auth/google" class="google-link">Googleカレンダーと連携する</a>
+    </div>
+
+    <!-- メール本文の入力 -->
+    <div class="form-group">
+      <label for="emailContent">メール内容（コピペ）:</label>
+      <textarea id="emailContent" placeholder="ここにメール文面をコピペしてください..."></textarea>
+    </div>
+
+    <!-- 解析ボタン -->
+    <div class="form-group">
+      <button id="parseBtn" class="btn-primary">解析する</button>
+    </div>
+
+    <!-- 解析結果表示用 -->
+    <div class="form-group">
+      <div id="parseResult"></div>
+    </div>
+
+    <!-- 折りたたみ領域（詳細設定） -->
+    <button type="button" class="collapsible-toggle" id="toggleOptions">▼ 詳細設定を表示</button>
+    <div id="optionsArea" class="collapsed">
+      <h2>詳細設定（必要な場合のみ修正）</h2>
+      <div class="form-group">
+        <label for="title">タイトル:</label>
+        <input type="text" id="title" placeholder="(解析結果が自動入力)" />
+      </div>
+      <div class="form-group">
+        <label for="location">場所:</label>
+        <input type="text" id="location" placeholder="(解析結果が自動入力)" />
+      </div>
+      <div class="form-group">
+        <label for="startTime">開始日時:</label>
+        <input type="datetime-local" id="startTime" step="1" />
+      </div>
+      <div class="form-group">
+        <label for="endTime">終了日時:</label>
+        <input type="datetime-local" id="endTime" step="1" />
+      </div>
+      <div class="form-group">
+        <label for="timezone">タイムゾーン:</label>
+        <select id="timezone">
+          <option value="Asia/Tokyo">Asia/Tokyo (JST, UTC+9)</option>
+          <option value="America/New_York">America/New_York (EST/EDT, UTC-5)</option>
+          <option value="America/Chicago">America/Chicago (CST/CDT, UTC-6)</option>
+          <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT, UTC-8)</option>
+          <option value="Europe/London">Europe/London (GMT/BST, UTC+0)</option>
+          <option value="Europe/Berlin">Europe/Berlin (CET/CEST, UTC+1)</option>
+          <option value="Europe/Paris">Europe/Paris (CET/CEST, UTC+1)</option>
+          <option value="Europe/Madrid">Europe/Madrid (CET/CEST, UTC+1)</option>
+          <option value="Asia/Shanghai">Asia/Shanghai (CST, UTC+8)</option>
+          <option value="Asia/Singapore">Asia/Singapore (SGT, UTC+8)</option>
+          <option value="Asia/Seoul">Asia/Seoul (KST, UTC+9)</option>
+          <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT, UTC+10)</option>
+          <option value="Pacific/Auckland">Pacific/Auckland (NZST/NZDT, UTC+12)</option>
+          <option value="UTC">UTC</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="description">説明:</label>
+        <textarea id="description" rows="3" placeholder="(詳細説明)"></textarea>
+      </div>
+    </div>
+
+    <!-- ICSダウンロード＆Googleカレンダー登録 -->
+    <div class="form-group action-buttons">
+      <button id="downloadBtn" class="btn-secondary" disabled>ICSファイルをダウンロード</button>
+      <button id="googleCreateBtn" class="btn-secondary" disabled>Googleカレンダーに登録</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
