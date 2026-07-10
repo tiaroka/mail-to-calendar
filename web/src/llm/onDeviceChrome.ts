@@ -16,6 +16,14 @@ interface LanguageModelStatic {
   create(options?: Record<string, unknown>): Promise<LanguageModelSession>;
 }
 
+// 出力言語の明示。未指定だと品質・安全性検証の警告が出る（将来必須化の可能性あり）。
+// expectedInputs/expectedOutputs が新API、outputLanguage は旧表記。未対応キーは無視される。
+const LANGUAGE_OPTIONS = {
+  expectedInputs: [{ type: 'text', languages: ['ja'] }],
+  expectedOutputs: [{ type: 'text', languages: ['ja'] }],
+  outputLanguage: 'ja',
+} as const;
+
 function getLanguageModel(): LanguageModelStatic | null {
   const g = globalThis as unknown as {
     LanguageModel?: LanguageModelStatic;
@@ -54,6 +62,7 @@ export async function triggerModelDownload(
   const lm = getLanguageModel();
   if (!lm) return;
   const session = await lm.create({
+    ...LANGUAGE_OPTIONS,
     monitor(m: EventTarget) {
       m.addEventListener('downloadprogress', (e) => {
         const loaded = (e as unknown as { loaded?: number }).loaded ?? 0;
@@ -103,6 +112,7 @@ export async function extractOnDevice(emailContent: string, now: Date = new Date
   if (!lm) throw new Error('端末内AIは利用できません');
 
   const session = await lm.create({
+    ...LANGUAGE_OPTIONS,
     initialPrompts: [
       { role: 'system', content: 'あなたはメール本文から予定情報を正確に抽出するアシスタントです。' },
     ],
