@@ -30,6 +30,27 @@ export class OnDeviceParseError extends Error {
   }
 }
 
+export interface ExtractOptions {
+  /** モデルダウンロードの進捗通知。0〜1（1=完了）、失敗時は -1 が渡される。 */
+  onDownloadProgress?: (progress: number) => void;
+}
+
+// ダウンロードの多重起動防止（連続クリック対策）
+let downloadInFlight = false;
+
+/** モデルのダウンロードをバックグラウンドで開始する。開始できたら true。 */
+function startModelDownload(onProgress?: (progress: number) => void): boolean {
+  if (downloadInFlight) return false;
+  downloadInFlight = true;
+  triggerModelDownload(onProgress)
+    .then(() => onProgress?.(1))
+    .catch(() => onProgress?.(-1))
+    .finally(() => {
+      downloadInFlight = false;
+    });
+  return true;
+}
+
 /** 抽出結果が実用に足るか（信頼度ゲート）。必須項目と開始日時の妥当性で判定。 */
 function isConfident(info: EventInfo): boolean {
   if (!info.title || !info.startTime || !info.endTime) return false;
@@ -40,6 +61,7 @@ function isConfident(info: EventInfo): boolean {
 export async function extractEvent(
   emailContent: string,
   preference: ParsePreference = 'auto',
+  options: ExtractOptions = {},
 ): Promise<ParseResult> {
   // クラウド固定
   if (preference === 'server') {
@@ -60,7 +82,7 @@ export async function extractEvent(
       }
     }
     if (status === 'downloadable') {
-      void triggerModelDownload().catch(() => {});
+      startModelDownload(options.onDownloadProgress);
       throw new OnDeviceParseError(
         '端末内AIモデルのダウンロードを開始しました。完了後にもう一度お試しください。',
       );
@@ -93,8 +115,12 @@ export async function extractEvent(
   // モデル未ダウンロードならバックグラウンドで取得を開始し（create() が引き金）、
   // 今回はサーバーで解析する。完了後の解析から端末内が使われるようになる。
   if (status === 'downloadable') {
-    void triggerModelDownload().catch(() => {});
-    return { info: await parseEmailOnServer(emailContent), source: 'server', modelDownloadStarted: true };
+    const started = startModelDownload(options.onDownloadProgress);
+    return {
+      info: await parseEmailOnServer(emailContent),
+      source: 'server',
+      ...(started && { modelDownloadStarted: true }),
+    };
   }
 
   // 端末内が使えない（downloading 中含む）→ サーバー

@@ -41,6 +41,12 @@
       <div id="parseResult"></div>
     </div>
 
+    <!-- 端末内AIモデルのダウンロード進捗（初期は非表示） -->
+    <div id="modelDownload" class="form-group collapsed">
+      <div id="modelDownloadText">端末内AIモデルをダウンロード中…</div>
+      <progress id="modelDownloadBar" max="100" value="0"></progress>
+    </div>
+
     <!-- クラウドで解析し直す（端末内結果が怪しいとき用。初期は非表示） -->
     <div class="form-group">
       <button id="reparseCloudBtn" class="btn-tertiary collapsed">クラウドで解析し直す</button>

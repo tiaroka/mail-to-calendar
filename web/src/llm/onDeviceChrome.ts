@@ -46,8 +46,11 @@ export async function getOnDeviceStatus(): Promise<OnDeviceStatus> {
 /**
  * モデルのダウンロードを開始する（Prompt API では create() がダウンロードの引き金）。
  * ユーザー操作（クリック等）の文脈で呼ぶこと。完了までは 'downloading' 状態になる。
+ * onProgress には進捗（0〜1）が渡される。
  */
-export async function triggerModelDownload(): Promise<void> {
+export async function triggerModelDownload(
+  onProgress?: (loaded: number) => void,
+): Promise<void> {
   const lm = getLanguageModel();
   if (!lm) return;
   const session = await lm.create({
@@ -55,6 +58,7 @@ export async function triggerModelDownload(): Promise<void> {
       m.addEventListener('downloadprogress', (e) => {
         const loaded = (e as unknown as { loaded?: number }).loaded ?? 0;
         console.log(`端末内AIモデル ダウンロード進捗: ${Math.round(loaded * 100)}%`);
+        onProgress?.(loaded);
       });
     },
   });

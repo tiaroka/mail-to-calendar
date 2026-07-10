@@ -22,6 +22,9 @@ const parseBtn = $<HTMLButtonElement>('parseBtn');
 const parsePrefSelect = $<HTMLSelectElement>('parsePref');
 const reparseCloudBtn = $<HTMLButtonElement>('reparseCloudBtn');
 const parseResultDiv = $<HTMLDivElement>('parseResult');
+const modelDownloadDiv = $<HTMLDivElement>('modelDownload');
+const modelDownloadText = $<HTMLDivElement>('modelDownloadText');
+const modelDownloadBar = $<HTMLProgressElement>('modelDownloadBar');
 const toggleOptionsBtn = $<HTMLButtonElement>('toggleOptions');
 const optionsArea = $<HTMLDivElement>('optionsArea');
 const downloadBtn = $<HTMLButtonElement>('downloadBtn');
@@ -114,6 +117,26 @@ function applyResult(result: ParseResult): void {
   reparseCloudBtn.classList.toggle('collapsed', source !== 'on-device');
 }
 
+// 端末内AIモデルのダウンロード進捗表示（0〜1、1=完了、-1=失敗）
+function updateModelDownload(progress: number): void {
+  if (progress < 0) {
+    // 失敗時は静かに消す（解析自体はクラウドで完了しているため邪魔しない）
+    modelDownloadDiv.classList.add('collapsed');
+    return;
+  }
+  if (progress >= 1) {
+    if (!modelDownloadDiv.classList.contains('collapsed')) {
+      modelDownloadDiv.classList.add('collapsed');
+      showNotification('端末内AIの準備ができました。次回の解析から端末内で実行されます');
+    }
+    return;
+  }
+  const pct = Math.round(progress * 100);
+  modelDownloadBar.value = pct;
+  modelDownloadText.textContent = `端末内AIモデルをダウンロード中… ${pct}%`;
+  modelDownloadDiv.classList.remove('collapsed');
+}
+
 // 解析の実行本体（優先方針を指定）
 async function runParse(preference: ParsePreference, button: HTMLButtonElement): Promise<void> {
   const emailContent = emailContentInput.value.trim();
@@ -130,7 +153,9 @@ async function runParse(preference: ParsePreference, button: HTMLButtonElement):
   globalEmailContent = emailContent;
 
   try {
-    applyResult(await extractEvent(emailContent, preference));
+    applyResult(
+      await extractEvent(emailContent, preference, { onDownloadProgress: updateModelDownload }),
+    );
     showNotification('解析が完了しました');
   } catch (err) {
     console.error(err);
