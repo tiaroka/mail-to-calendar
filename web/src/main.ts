@@ -118,6 +118,7 @@ function applyResult(result: ParseResult): void {
 }
 
 // 端末内AIモデルのダウンロード進捗表示（0〜1、1=完了、-1=失敗）
+// 0 は「進捗値が未着」を意味し、不確定バー（アニメーション）で表示する
 function updateModelDownload(progress: number): void {
   if (progress < 0) {
     // 失敗時は静かに消す（解析自体はクラウドで完了しているため邪魔しない）
@@ -131,9 +132,15 @@ function updateModelDownload(progress: number): void {
     }
     return;
   }
-  const pct = Math.round(progress * 100);
-  modelDownloadBar.value = pct;
-  modelDownloadText.textContent = `端末内AIモデルをダウンロード中… ${pct}%`;
+  if (progress === 0) {
+    // value 属性を外すと不確定モード（進捗不明のアニメーション表示）になる
+    modelDownloadBar.removeAttribute('value');
+    modelDownloadText.textContent = '端末内AIモデルをダウンロード中…';
+  } else {
+    const pct = Math.round(progress * 100);
+    modelDownloadBar.value = pct;
+    modelDownloadText.textContent = `端末内AIモデルをダウンロード中… ${pct}%`;
+  }
   modelDownloadDiv.classList.remove('collapsed');
 }
 

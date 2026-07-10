@@ -42,9 +42,15 @@ let downloadInFlight = false;
 function startModelDownload(onProgress?: (progress: number) => void): boolean {
   if (downloadInFlight) return false;
   downloadInFlight = true;
+  // 最初の downloadprogress イベントは何分も来ないことがある（合流時は届かない場合もある）ため、
+  // 開始した時点で 0 を通知してインジケーターを即時表示させる
+  onProgress?.(0);
   triggerModelDownload(onProgress)
     .then(() => onProgress?.(1))
-    .catch(() => onProgress?.(-1))
+    .catch((err) => {
+      console.warn('端末内AIモデルのダウンロードに失敗:', err);
+      onProgress?.(-1);
+    })
     .finally(() => {
       downloadInFlight = false;
     });
