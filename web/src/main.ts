@@ -1,7 +1,12 @@
 import './styles.css';
 import type { CalendarEventInput } from '../../shared/types.js';
 import { createIcs, createGoogleEvent, AuthRequiredError } from './api.js';
-import { extractEvent, type ParsePreference, type ParseResult } from './llm/index.js';
+import {
+  extractEvent,
+  OnDeviceParseError,
+  type ParsePreference,
+  type ParseResult,
+} from './llm/index.js';
 import { showNotification, ensureSeconds } from './ui.js';
 
 let globalEmailContent = '';
@@ -132,6 +137,8 @@ async function runParse(preference: ParsePreference, button: HTMLButtonElement):
     if (!handleAuthError(err)) {
       parseResultDiv.textContent = `解析失敗: ${(err as Error).message}`;
       showNotification('解析に失敗しました', true);
+      // 端末内AI由来の失敗ならクラウドで解析し直す導線を出す（クリックして初めてクラウド送信）
+      reparseCloudBtn.classList.toggle('collapsed', !(err instanceof OnDeviceParseError));
     }
   } finally {
     button.disabled = false;

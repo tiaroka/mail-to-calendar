@@ -19,6 +19,17 @@ export interface ParseResult {
   modelDownloadStarted?: boolean;
 }
 
+/**
+ * 端末内AIが使えない・失敗したことを示すエラー。
+ * on-device 固定時はプライバシー選択を尊重し、クラウドへは一切送信せずこれを投げる。
+ */
+export class OnDeviceParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OnDeviceParseError';
+  }
+}
+
 /** 抽出結果が実用に足るか（信頼度ゲート）。必須項目と開始日時の妥当性で判定。 */
 function isConfident(info: EventInfo): boolean {
   if (!info.title || !info.startTime || !info.endTime) return false;
@@ -35,18 +46,46 @@ export async function extractEvent(
     return { info: await parseEmailOnServer(emailContent), source: 'server' };
   }
 
-  // 端末内を試す（auto / on-device）
   const status = await getOnDeviceStatus();
+
+  // 端末内固定: プライバシー目的の明示選択のため、クラウドへは一切送信しない
+  if (preference === 'on-device') {
+    if (status === 'available') {
+      try {
+        return { info: await extractOnDevice(emailContent), source: 'on-device' };
+      } catch {
+        throw new OnDeviceParseError(
+          '端末内AIでの解析に失敗しました。「クラウドで解析し直す」で再試行できます。',
+        );
+      }
+    }
+    if (status === 'downloadable') {
+      void triggerModelDownload().catch(() => {});
+      throw new OnDeviceParseError(
+        '端末内AIモデルのダウンロードを開始しました。完了後にもう一度お試しください。',
+      );
+    }
+    if (status === 'downloading') {
+      throw new OnDeviceParseError(
+        '端末内AIモデルをダウンロード中です。完了後にもう一度お試しください。',
+      );
+    }
+    throw new OnDeviceParseError(
+      'この環境では端末内AIを利用できません（Chrome組み込みAI非対応）。',
+    );
+  }
+
+  // auto: 端末内優先、低信頼度・失敗時はサーバーへエスカレーション
   if (status === 'available') {
     try {
       const info = await extractOnDevice(emailContent);
-      if (preference === 'on-device' || isConfident(info)) {
+      if (isConfident(info)) {
         return { info, source: 'on-device' };
       }
-      // auto かつ低信頼度 → サーバーへエスカレーション
+      // 低信頼度 → サーバーへエスカレーション
       return { info: await parseEmailOnServer(emailContent), source: 'server', escalated: true };
     } catch {
-      // 端末内失敗 → サーバーへフォールバック（auto のみ。on-device 固定でもサーバーで救済）
+      // 端末内失敗 → サーバーで救済
       return { info: await parseEmailOnServer(emailContent), source: 'server', escalated: true };
     }
   }

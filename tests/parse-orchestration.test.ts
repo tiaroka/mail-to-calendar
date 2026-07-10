@@ -17,7 +17,7 @@ vi.mock('../web/src/api.js', () => ({
   parseEmailOnServer: mockServer,
 }));
 
-const { extractEvent } = await import('../web/src/llm/index.js');
+const { extractEvent, OnDeviceParseError } = await import('../web/src/llm/index.js');
 
 const CONFIDENT = {
   title: '会議',
@@ -67,6 +67,33 @@ describe('extractEvent（解析オーケストレーション）', () => {
     mockOnDevice.mockResolvedValue(LOW_CONF);
     const r = await extractEvent('x', 'on-device');
     expect(r.source).toBe('on-device');
+    expect(mockServer).not.toHaveBeenCalled();
+  });
+
+  it('on-device 固定で端末内が失敗したらクラウドへ送らずエラー', async () => {
+    mockStatus.mockResolvedValue('available');
+    mockOnDevice.mockRejectedValue(new Error('boom'));
+    await expect(extractEvent('x', 'on-device')).rejects.toThrow(OnDeviceParseError);
+    expect(mockServer).not.toHaveBeenCalled();
+  });
+
+  it('on-device 固定でモデル未ダウンロードならダウンロード開始しエラー（クラウドへ送らない）', async () => {
+    mockStatus.mockResolvedValue('downloadable');
+    await expect(extractEvent('x', 'on-device')).rejects.toThrow(OnDeviceParseError);
+    expect(mockDownload).toHaveBeenCalledOnce();
+    expect(mockServer).not.toHaveBeenCalled();
+  });
+
+  it('on-device 固定でダウンロード中ならエラー（クラウドへ送らない）', async () => {
+    mockStatus.mockResolvedValue('downloading');
+    await expect(extractEvent('x', 'on-device')).rejects.toThrow(OnDeviceParseError);
+    expect(mockDownload).not.toHaveBeenCalled();
+    expect(mockServer).not.toHaveBeenCalled();
+  });
+
+  it('on-device 固定で利用不可環境ならエラー（クラウドへ送らない）', async () => {
+    mockStatus.mockResolvedValue('unavailable');
+    await expect(extractEvent('x', 'on-device')).rejects.toThrow(OnDeviceParseError);
     expect(mockServer).not.toHaveBeenCalled();
   });
 
