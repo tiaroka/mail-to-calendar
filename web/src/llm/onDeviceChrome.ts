@@ -24,17 +24,41 @@ function getLanguageModel(): LanguageModelStatic | null {
   return g.LanguageModel ?? g.ai?.languageModel ?? null;
 }
 
-/** 端末内モデルが「今すぐ使える」状態か（ダウンロード済み）を判定する。 */
-export async function isOnDeviceAvailable(): Promise<boolean> {
+/** 端末内モデルの利用可否ステータス（新旧APIの戻り値を正規化）。 */
+export type OnDeviceStatus = 'available' | 'downloadable' | 'downloading' | 'unavailable';
+
+/** 端末内モデルの現在の状態を返す。 */
+export async function getOnDeviceStatus(): Promise<OnDeviceStatus> {
   const lm = getLanguageModel();
-  if (!lm) return false;
+  if (!lm) return 'unavailable';
   try {
     const status = await lm.availability();
-    // 新旧の戻り値を吸収（'available' / 旧 'readily'）
-    return status === 'available' || status === 'readily';
+    // 新旧の戻り値を吸収（'available' / 旧 'readily'、'downloadable' / 旧 'after-download'）
+    if (status === 'available' || status === 'readily') return 'available';
+    if (status === 'downloadable' || status === 'after-download') return 'downloadable';
+    if (status === 'downloading') return 'downloading';
+    return 'unavailable';
   } catch {
-    return false;
+    return 'unavailable';
   }
+}
+
+/**
+ * モデルのダウンロードを開始する（Prompt API では create() がダウンロードの引き金）。
+ * ユーザー操作（クリック等）の文脈で呼ぶこと。完了までは 'downloading' 状態になる。
+ */
+export async function triggerModelDownload(): Promise<void> {
+  const lm = getLanguageModel();
+  if (!lm) return;
+  const session = await lm.create({
+    monitor(m: EventTarget) {
+      m.addEventListener('downloadprogress', (e) => {
+        const loaded = (e as unknown as { loaded?: number }).loaded ?? 0;
+        console.log(`端末内AIモデル ダウンロード進捗: ${Math.round(loaded * 100)}%`);
+      });
+    },
+  });
+  session.destroy?.();
 }
 
 function buildPrompt(emailContent: string, now: Date): string {

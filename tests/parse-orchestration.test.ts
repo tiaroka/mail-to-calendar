@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 端末内アダプタとサーバーAPIをモックし、信頼度ゲート/エスカレーションのロジックを検証する。
-const { mockAvailable, mockOnDevice, mockServer } = vi.hoisted(() => ({
-  mockAvailable: vi.fn(),
+const { mockStatus, mockOnDevice, mockServer, mockDownload } = vi.hoisted(() => ({
+  mockStatus: vi.fn(),
   mockOnDevice: vi.fn(),
   mockServer: vi.fn(),
+  mockDownload: vi.fn(),
 }));
 
 vi.mock('../web/src/llm/onDeviceChrome.js', () => ({
-  isOnDeviceAvailable: mockAvailable,
+  getOnDeviceStatus: mockStatus,
   extractOnDevice: mockOnDevice,
+  triggerModelDownload: mockDownload,
 }));
 vi.mock('../web/src/api.js', () => ({
   parseEmailOnServer: mockServer,
@@ -31,18 +33,19 @@ const SERVER_RESULT = { ...CONFIDENT, title: 'サーバー結果' };
 beforeEach(() => {
   vi.clearAllMocks();
   mockServer.mockResolvedValue(SERVER_RESULT);
+  mockDownload.mockResolvedValue(undefined);
 });
 
 describe('extractEvent（解析オーケストレーション）', () => {
   it('preference=server ならサーバーを使う', async () => {
     const r = await extractEvent('x', 'server');
     expect(r.source).toBe('server');
-    expect(mockAvailable).not.toHaveBeenCalled();
+    expect(mockStatus).not.toHaveBeenCalled();
     expect(mockServer).toHaveBeenCalledOnce();
   });
 
   it('端末内が使えて高信頼度なら端末内結果を採用', async () => {
-    mockAvailable.mockResolvedValue(true);
+    mockStatus.mockResolvedValue('available');
     mockOnDevice.mockResolvedValue(CONFIDENT);
     const r = await extractEvent('x', 'auto');
     expect(r.source).toBe('on-device');
@@ -51,7 +54,7 @@ describe('extractEvent（解析オーケストレーション）', () => {
   });
 
   it('auto かつ端末内が低信頼度ならサーバーへ自動エスカレーション', async () => {
-    mockAvailable.mockResolvedValue(true);
+    mockStatus.mockResolvedValue('available');
     mockOnDevice.mockResolvedValue(LOW_CONF);
     const r = await extractEvent('x', 'auto');
     expect(r.source).toBe('server');
@@ -60,7 +63,7 @@ describe('extractEvent（解析オーケストレーション）', () => {
   });
 
   it('on-device 固定なら低信頼度でも端末内結果を返す', async () => {
-    mockAvailable.mockResolvedValue(true);
+    mockStatus.mockResolvedValue('available');
     mockOnDevice.mockResolvedValue(LOW_CONF);
     const r = await extractEvent('x', 'on-device');
     expect(r.source).toBe('on-device');
@@ -68,17 +71,35 @@ describe('extractEvent（解析オーケストレーション）', () => {
   });
 
   it('端末内が例外を投げたらサーバーで救済', async () => {
-    mockAvailable.mockResolvedValue(true);
+    mockStatus.mockResolvedValue('available');
     mockOnDevice.mockRejectedValue(new Error('boom'));
     const r = await extractEvent('x', 'auto');
     expect(r.source).toBe('server');
     expect(r.escalated).toBe(true);
   });
 
-  it('端末内が使えなければサーバー', async () => {
-    mockAvailable.mockResolvedValue(false);
+  it('端末内が使えなければサーバー（ダウンロードは開始しない）', async () => {
+    mockStatus.mockResolvedValue('unavailable');
     const r = await extractEvent('x', 'auto');
     expect(r.source).toBe('server');
     expect(mockOnDevice).not.toHaveBeenCalled();
+    expect(mockDownload).not.toHaveBeenCalled();
+  });
+
+  it('モデル未ダウンロードならダウンロードを開始しつつサーバーで解析', async () => {
+    mockStatus.mockResolvedValue('downloadable');
+    const r = await extractEvent('x', 'auto');
+    expect(r.source).toBe('server');
+    expect(r.modelDownloadStarted).toBe(true);
+    expect(mockDownload).toHaveBeenCalledOnce();
+    expect(mockOnDevice).not.toHaveBeenCalled();
+  });
+
+  it('ダウンロード中はサーバーで解析（多重ダウンロードは誘発しない）', async () => {
+    mockStatus.mockResolvedValue('downloading');
+    const r = await extractEvent('x', 'auto');
+    expect(r.source).toBe('server');
+    expect(r.modelDownloadStarted).toBeUndefined();
+    expect(mockDownload).not.toHaveBeenCalled();
   });
 });

@@ -23,6 +23,9 @@ router.get('/auth/google', (req: Request, res: Response) => {
   const dynamicRedirectUri = getRedirectUri(req);
   const url = authUrlClient.generateAuthUrl({
     access_type: 'offline',
+    // Google は初回同意時しか refresh_token を返さないため、毎回同意画面を出して
+    // 確実に refresh_token を取得する（無いとアクセストークン失効後に登録が失敗する）
+    prompt: 'consent',
     scope: scopes,
     redirect_uri: dynamicRedirectUri,
   });

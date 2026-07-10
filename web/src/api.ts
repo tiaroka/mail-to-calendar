@@ -1,6 +1,14 @@
 // サーバーAPIへの型付きクライアント。
 import type { EventInfo, CalendarEventInput } from '../../shared/types.js';
 
+/** セッション切れ等で再ログインが必要なことを示すエラー。 */
+export class AuthRequiredError extends Error {
+  constructor(message = '認証の有効期限が切れました。再ログインしてください。') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
 /** サーバー経由（LLM）でメール本文を解析する。 */
 export async function parseEmailOnServer(emailContent: string): Promise<EventInfo> {
   const resp = await fetch('/api/parse', {
@@ -8,6 +16,7 @@ export async function parseEmailOnServer(emailContent: string): Promise<EventInf
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({ emailContent }),
   });
+  if (resp.status === 401) throw new AuthRequiredError();
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(text || `解析失敗 (status ${resp.status})`);
@@ -22,6 +31,7 @@ export async function createIcs(input: CalendarEventInput): Promise<Blob> {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(input),
   });
+  if (resp.status === 401) throw new AuthRequiredError();
   if (!resp.ok) {
     throw new Error(`ICSファイル作成に失敗しました (status ${resp.status})`);
   }
@@ -35,6 +45,7 @@ export async function createGoogleEvent(input: CalendarEventInput): Promise<{ me
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(input),
   });
+  if (resp.status === 401) throw new AuthRequiredError();
   if (!resp.ok) {
     let errMsg = '不明なエラー';
     try {

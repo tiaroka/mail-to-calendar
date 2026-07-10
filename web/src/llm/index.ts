@@ -3,7 +3,7 @@
 // 端末内モデルは小型で精度が落ちるため「最初の下書き」扱いとする。
 import type { EventInfo } from '../../../shared/types.js';
 import { parseEmailOnServer } from '../api.js';
-import { isOnDeviceAvailable, extractOnDevice } from './onDeviceChrome.js';
+import { getOnDeviceStatus, extractOnDevice, triggerModelDownload } from './onDeviceChrome.js';
 
 export type ParseSource = 'server' | 'on-device';
 
@@ -15,6 +15,8 @@ export interface ParseResult {
   source: ParseSource;
   /** 端末内で試みたが信頼度不足でサーバーへ切り替えたか */
   escalated?: boolean;
+  /** 端末内モデルのダウンロードをこの解析を機に開始したか */
+  modelDownloadStarted?: boolean;
 }
 
 /** 抽出結果が実用に足るか（信頼度ゲート）。必須項目と開始日時の妥当性で判定。 */
@@ -34,7 +36,8 @@ export async function extractEvent(
   }
 
   // 端末内を試す（auto / on-device）
-  if (await isOnDeviceAvailable()) {
+  const status = await getOnDeviceStatus();
+  if (status === 'available') {
     try {
       const info = await extractOnDevice(emailContent);
       if (preference === 'on-device' || isConfident(info)) {
@@ -48,6 +51,13 @@ export async function extractEvent(
     }
   }
 
-  // 端末内が使えない → サーバー
+  // モデル未ダウンロードならバックグラウンドで取得を開始し（create() が引き金）、
+  // 今回はサーバーで解析する。完了後の解析から端末内が使われるようになる。
+  if (status === 'downloadable') {
+    void triggerModelDownload().catch(() => {});
+    return { info: await parseEmailOnServer(emailContent), source: 'server', modelDownloadStarted: true };
+  }
+
+  // 端末内が使えない（downloading 中含む）→ サーバー
   return { info: await parseEmailOnServer(emailContent), source: 'server' };
 }

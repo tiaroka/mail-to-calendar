@@ -31,6 +31,11 @@ router.post(
 
     const requestOAuth2Client = createOAuth2Client();
     requestOAuth2Client.setCredentials(tokens);
+    // アクセストークンが自動リフレッシュされたらセッションへ書き戻す
+    // （リフレッシュ応答には refresh_token が含まれないためマージする）
+    requestOAuth2Client.on('tokens', (newTokens) => {
+      req.session.googleTokens = { ...req.session.googleTokens, ...newTokens };
+    });
     const calendar = google.calendar({ version: 'v3', auth: requestOAuth2Client });
 
     startTime = ensureSeconds(startTime);
@@ -54,7 +59,11 @@ router.post(
     logger.error('Google Calendar Insert Error', { message: err?.message, code: err?.code });
     let userMessage = 'カレンダーへの登録に失敗しました。';
     if (err?.code === 401) {
-      userMessage = '認証の有効期限が切れました。再度ログインしてください。';
+      // トークン失効はフロントで再ログイン誘導するため 401 で返す
+      return res.status(401).json({
+        error: '認証の有効期限が切れました。再度ログインしてください。',
+        requiresLogin: true,
+      });
     } else if (err?.code === 403) {
       userMessage = 'カレンダーへのアクセス権限がありません。';
     } else if (err?.code === 404) {

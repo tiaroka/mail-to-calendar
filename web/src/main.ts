@@ -1,6 +1,6 @@
 import './styles.css';
 import type { CalendarEventInput } from '../../shared/types.js';
-import { createIcs, createGoogleEvent } from './api.js';
+import { createIcs, createGoogleEvent, AuthRequiredError } from './api.js';
 import { extractEvent, type ParsePreference, type ParseResult } from './llm/index.js';
 import { showNotification, ensureSeconds } from './ui.js';
 
@@ -55,10 +55,27 @@ const SOURCE_LABEL: Record<ParseResult['source'], string> = {
   server: 'クラウド',
 };
 
+// 再ログイン前にメール本文を退避しておくキー（OAuth往復でページが再読み込みされるため）
+const PENDING_EMAIL_KEY = 'pendingEmailContent';
+
+/** 認証切れなら入力内容を退避して再ログインへ誘導する。処理した場合 true。 */
+function handleAuthError(err: unknown): boolean {
+  if (!(err instanceof AuthRequiredError)) return false;
+  sessionStorage.setItem(PENDING_EMAIL_KEY, emailContentInput.value);
+  showNotification('認証の有効期限が切れました。再ログインします...', true);
+  setTimeout(() => {
+    window.location.href = '/auth/google';
+  }, 1500);
+  return true;
+}
+
 // 解析結果をフォームへ反映する
 function applyResult(result: ParseResult): void {
-  const { info, source, escalated } = result;
-  const sourceNote = `解析元: ${SOURCE_LABEL[source]}${escalated ? '（端末内から自動切替）' : ''}`;
+  const { info, source, escalated, modelDownloadStarted } = result;
+  let sourceNote = `解析元: ${SOURCE_LABEL[source]}${escalated ? '（端末内から自動切替）' : ''}`;
+  if (modelDownloadStarted) {
+    sourceNote += '\n端末内AIモデルのダウンロードを開始しました。完了後は端末内で解析します。';
+  }
 
   parseResultDiv.textContent = `${sourceNote}
 タイトル: ${info.title || '(取得できませんでした)'}
@@ -112,8 +129,10 @@ async function runParse(preference: ParsePreference, button: HTMLButtonElement):
     showNotification('解析が完了しました');
   } catch (err) {
     console.error(err);
-    parseResultDiv.textContent = `解析失敗: ${(err as Error).message}`;
-    showNotification('解析に失敗しました', true);
+    if (!handleAuthError(err)) {
+      parseResultDiv.textContent = `解析失敗: ${(err as Error).message}`;
+      showNotification('解析に失敗しました', true);
+    }
   } finally {
     button.disabled = false;
     button.textContent = prevLabel;
@@ -143,7 +162,9 @@ downloadBtn.addEventListener('click', async () => {
     showNotification('ICSファイルをダウンロードしました');
   } catch (err) {
     console.error(err);
-    showNotification((err as Error).message, true);
+    if (!handleAuthError(err)) {
+      showNotification((err as Error).message, true);
+    }
   } finally {
     downloadBtn.disabled = false;
     downloadBtn.textContent = 'ICSファイルをダウンロード';
@@ -159,17 +180,25 @@ googleCreateBtn.addEventListener('click', async () => {
     showNotification('Googleカレンダーに予定を登録しました');
   } catch (err) {
     console.error(err);
-    showNotification('Googleカレンダー登録失敗: ' + (err as Error).message, true);
+    if (!handleAuthError(err)) {
+      showNotification('Googleカレンダー登録失敗: ' + (err as Error).message, true);
+    }
   } finally {
     googleCreateBtn.disabled = false;
     googleCreateBtn.textContent = 'Googleカレンダーに登録';
   }
 });
 
-// ページ読み込み時に auth_success を確認
+// ページ読み込み時に auth_success を確認し、退避していた入力内容を復元する
 document.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   if (params.has('auth_success')) {
     showNotification('Googleアカウントとの連携に成功しました');
+  }
+  const pending = sessionStorage.getItem(PENDING_EMAIL_KEY);
+  if (pending) {
+    sessionStorage.removeItem(PENDING_EMAIL_KEY);
+    emailContentInput.value = pending;
+    showNotification('再ログイン前の入力内容を復元しました');
   }
 });
