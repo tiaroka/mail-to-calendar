@@ -88,6 +88,8 @@ export async function extractEvent(
       );
     }
     if (status === 'downloading') {
+      // 進行中のダウンロードに create() で合流し、進捗をUIへ流す
+      startModelDownload(options.onDownloadProgress);
       throw new OnDeviceParseError(
         '端末内AIモデルをダウンロード中です。完了後にもう一度お試しください。',
       );
@@ -123,6 +125,12 @@ export async function extractEvent(
     };
   }
 
-  // 端末内が使えない（downloading 中含む）→ サーバー
+  // ダウンロード中: 進行中のダウンロードに合流して進捗を表示しつつ、サーバーで解析
+  if (status === 'downloading') {
+    startModelDownload(options.onDownloadProgress);
+    return { info: await parseEmailOnServer(emailContent), source: 'server' };
+  }
+
+  // 端末内が使えない → サーバー
   return { info: await parseEmailOnServer(emailContent), source: 'server' };
 }

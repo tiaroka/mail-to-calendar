@@ -84,10 +84,10 @@ describe('extractEvent（解析オーケストレーション）', () => {
     expect(mockServer).not.toHaveBeenCalled();
   });
 
-  it('on-device 固定でダウンロード中ならエラー（クラウドへ送らない）', async () => {
+  it('on-device 固定でダウンロード中ならエラー（進捗合流あり・クラウドへ送らない）', async () => {
     mockStatus.mockResolvedValue('downloading');
     await expect(extractEvent('x', 'on-device')).rejects.toThrow(OnDeviceParseError);
-    expect(mockDownload).not.toHaveBeenCalled();
+    expect(mockDownload).toHaveBeenCalledOnce();
     expect(mockServer).not.toHaveBeenCalled();
   });
 
@@ -122,11 +122,11 @@ describe('extractEvent（解析オーケストレーション）', () => {
     expect(mockOnDevice).not.toHaveBeenCalled();
   });
 
-  it('ダウンロード中はサーバーで解析（多重ダウンロードは誘発しない）', async () => {
+  it('ダウンロード中はサーバーで解析しつつ進捗表示のため合流する', async () => {
     mockStatus.mockResolvedValue('downloading');
     const r = await extractEvent('x', 'auto');
     expect(r.source).toBe('server');
     expect(r.modelDownloadStarted).toBeUndefined();
-    expect(mockDownload).not.toHaveBeenCalled();
+    expect(mockDownload).toHaveBeenCalledOnce();
   });
 });
