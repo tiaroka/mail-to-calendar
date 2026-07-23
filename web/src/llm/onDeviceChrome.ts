@@ -80,6 +80,11 @@ function buildPrompt(emailContent: string, now: Date): string {
   return `次のメール本文から予定情報を抽出し、JSONだけを出力してください（前後の説明文は不要）。
 現在は${y}年${m}月です。年が省略されていれば最も近い未来として解釈してください。
 タイムゾーンはメールから推測（都市名・略称CET/PST等）。不明なら "Asia/Tokyo"。
+title は「企業名 イベント名」の形式にする。変換例:
+- 本文「〇〇株式会社（ABC）は…決算説明会を開催」→ title: "ABC 決算説明会"
+- 件名「【〇〇社/取材案内】新製品発表会のご案内」→ title: "〇〇社 新製品発表会"
+- 本文「サービス△△ドライブ 記者説明会のご案内」→ title: "△△ドライブ 記者説明会"
+本文にない企業名は補わない。
 出力キー: title, location, startTime, endTime, description, timezone
 日時は ISO 8601 のローカル時刻 "YYYY-MM-DDTHH:mm:ss" 形式。
 

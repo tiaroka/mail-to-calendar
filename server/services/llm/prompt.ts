@@ -31,7 +31,15 @@ export function buildSystemPrompt(now: Date): string {
   - 都市名・国名からの推測: 開催場所が海外都市の場合、その都市のタイムゾーンを使用
     例: 「ベルリンのオフィスにて」→ Europe/Berlin, 「サンフランシスコ」→ America/Los_Angeles
 - タイムゾーン情報が一切ない場合は Asia/Tokyo を使用してください
-- 日時はそのタイムゾーンでのローカル時刻として返してください`;
+- 日時はそのタイムゾーンでのローカル時刻として返してください
+
+タイトルの付け方:
+- 主催する企業名・サービス名・団体名が本文に書かれている場合は、タイトルの先頭に置いてください
+  例: 「〇〇株式会社 新製品発表会」「サービス△△ 記者説明会」
+- 企業名に略称・通称が併記されている場合は略称を使ってください
+  例: 「〇〇株式会社（ABC）」→「ABC」、「【ABC/取材案内】」のような件名の略称も可
+- 企業名・サービス名は本文に実際に書かれているものだけを使い、推測で補わないでください
+- 「取材のご案内」「【プレスリリース】」のような定型句だけをタイトルにせず、何のイベントか分かる名称にしてください`;
 }
 
 /** 抽出ツールの入力スキーマ（JSON Schema）。OpenAI/Anthropic 共通。 */
@@ -41,7 +49,11 @@ export function buildExtractParameters(now: Date) {
   return {
     type: 'object',
     properties: {
-      title: { type: 'string', description: 'イベントのタイトル' },
+      title: {
+        type: 'string',
+        description:
+          'イベントのタイトル。主催の企業名・サービス名が本文にあれば先頭に置く（例: 「〇〇株式会社 新製品発表会」）。本文にない名前は補わない。',
+      },
       location: { type: 'string', description: '開催場所' },
       startTime: {
         type: 'string',
