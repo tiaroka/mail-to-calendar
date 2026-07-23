@@ -113,6 +113,13 @@ gcloud run deploy $SERVICE_NAME \
 # Get the deployed service URL
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')
 
+# 新規デプロイ時は GOOGLE_REDIRECT_URI がプレースホルダのままなので、実URLで更新する
+if [ -z "$EXISTING_URL" ] && [ -n "$SERVICE_URL" ]; then
+    echo -e "${YELLOW}新規デプロイのため GOOGLE_REDIRECT_URI を実URLに更新します...${NC}"
+    gcloud run services update $SERVICE_NAME --region $REGION \
+        --update-env-vars "GOOGLE_REDIRECT_URI=$SERVICE_URL/auth/google/callback"
+fi
+
 echo ""
 echo -e "${GREEN}=== Deployment Complete ===${NC}"
 echo ""

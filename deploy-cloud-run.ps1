@@ -33,6 +33,10 @@ Get-Content .env | ForEach-Object {
     if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
         $key = $matches[1].Trim()
         $value = $matches[2].Trim()
+        # 行末コメント（VAR=value # メモ）を除去（クォートされていない値のみ）
+        if ($value -notmatch '^["'']') {
+            $value = ($value -replace '\s+#.*$', '').Trim()
+        }
         # Remove quotes if present
         $value = $value -replace '^"(.*)"$', '$1'
         $value = $value -replace "^'(.*)'$", '$1'
@@ -136,6 +140,12 @@ if ($LASTEXITCODE -ne 0) {
 
 # Get the deployed service URL
 $serviceUrl = gcloud run services describe $ServiceName --region=$Region --format='value(status.url)'
+
+# 新規デプロイ時は GOOGLE_REDIRECT_URI がプレースホルダのままなので、実URLで更新する
+if ((-not $existingUrl) -and $serviceUrl) {
+    Write-Host "Updating GOOGLE_REDIRECT_URI to actual service URL..." -ForegroundColor Yellow
+    gcloud run services update $ServiceName --region $Region --update-env-vars "GOOGLE_REDIRECT_URI=$serviceUrl/auth/google/callback"
+}
 
 Write-Host ""
 Write-Host "=== Deployment Complete ===" -ForegroundColor Green
