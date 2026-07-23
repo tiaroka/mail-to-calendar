@@ -39,8 +39,11 @@ if [ ! -f .env ]; then
 fi
 
 # Load environment variables from .env
+# source なら行末コメント（VAR=value # メモ）も正しく扱える
 echo -e "${YELLOW}Loading environment variables from .env...${NC}"
-export $(cat .env | grep -v '^#' | xargs)
+set -a
+source .env
+set +a
 
 # Check required environment variables
 REQUIRED_VARS=("GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET" "SESSION_SECRET")
