@@ -118,12 +118,37 @@ function parseJsonLoose(text: string): Record<string, unknown> {
 
 /** 企業名だけを尋ねる2回目のプロンプト（本文はセッション履歴に残っているため再送しない）。 */
 const ORG_NAME_PROMPT = `上のメール本文で、この予定を主催している企業名・サービス名・団体名を1つだけ出力してください。
+- 件名や差出人の署名（「〇〇広報の△△です」など）からも判断してかまいません
 - 略称・通称が併記されている場合は略称を使ってください（例:「〇〇株式会社（ABC）」→ ABC）
+- 「株式会社」「Inc.」などの法人格や「広報」は付けず、本文に書かれているとおりの表記で出力してください
 - 名前だけを出力し、説明・記号・句読点は付けないでください
-- 本文に企業名が書かれていない場合は NONE とだけ出力してください`;
+- どうしても企業名が読み取れない場合のみ NONE とだけ出力してください`;
 
 /** 企業名として採用しない回答（モデルが「無い」を言い換えるパターン）。 */
 const NO_ORG_ANSWER = /^(none|n\/a|なし|無し|不明|該当なし|ありません|記載なし)$/i;
+
+// 本文照合の前に落とすノイズ。モデルは本文になくても正式名称に補完しがちで
+// （本文「シャープ」に対し「シャープ株式会社」）、完全一致だけでは弾いてしまう。
+const LEGAL_SUFFIX =
+  /(株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社団法人|財団法人|\(株\)|（株）|㈱|\(有\)|（有）|㈲)/g;
+const LATIN_SUFFIX =
+  /[,、]?\s*(Inc|Incorporated|Corp|Corporation|Co|Company|Ltd|Limited|LLC|LLP|PLC|GmbH)\.?$/i;
+const ROLE_NOISE = /(広報部|広報室|広報|PR事務局|プレス事務局|事務局|報道担当)$/;
+
+/** 法人格・肩書き・括弧書きを除いた企業名の核を取り出す。 */
+function stripOrgNoise(name: string): string {
+  return name
+    .replace(LEGAL_SUFFIX, '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(LATIN_SUFFIX, '')
+    .replace(ROLE_NOISE, '')
+    .trim();
+}
+
+/** 空白・中黒を除いた照合用の文字列にする。 */
+function compact(s: string): string {
+  return s.replace(/[\s　・]/g, '');
+}
 
 /**
  * モデルの回答を企業名として使える形に整える。
@@ -145,9 +170,13 @@ export function sanitizeOrgName(raw: string, emailContent: string): string | nul
   // 名前ではなく文章を返してきた場合は捨てる
   if (name.length > 30) return null;
   if (NO_ORG_ANSWER.test(name)) return null;
+  // そのまま本文にあればそれを使う
+  if (emailContent.includes(name)) return name;
+  // 法人格などを補われた回答は、核が本文にあれば本文寄りの短い表記を採用する
+  const core = stripOrgNoise(name);
+  if (core.length >= 2 && compact(emailContent).includes(compact(core))) return core;
   // 本文に存在しない名前は補わない（サーバー側プロンプトと同じ方針）
-  if (!emailContent.includes(name)) return null;
-  return name;
+  return null;
 }
 
 /** 企業名をタイトル先頭へ付ける。既に含まれている場合はそのまま返す。 */
@@ -158,6 +187,25 @@ export function composeTitle(title: string, org: string): string {
   return `${org} ${base}`;
 }
 
+/**
+ * 2回目の問い合わせ用プロンプト。
+ * 同一セッションの履歴だけに頼ると、本文が長い場合に小型モデルが「上のメール本文」を
+ * 参照しきれない。企業名が現れやすい冒頭（件名・挨拶）と末尾（署名）だけを抜粋して添える。
+ */
+export function buildOrgPrompt(emailContent: string): string {
+  const HEAD = 400;
+  const TAIL = 400;
+  const body = emailContent.trim();
+  const hint =
+    body.length > HEAD + TAIL
+      ? `${body.slice(0, HEAD)}\n（中略）\n${body.slice(-TAIL)}`
+      : body;
+  return `${ORG_NAME_PROMPT}
+
+--- 判断材料（メールの冒頭と署名） ---
+${hint}`;
+}
+
 /** 抽出済みタイトルに企業名を補う。失敗しても元のタイトルを壊さない。 */
 async function refineTitleWithOrg(
   session: LanguageModelSession,
@@ -165,7 +213,10 @@ async function refineTitleWithOrg(
   emailContent: string,
 ): Promise<string> {
   try {
-    const org = sanitizeOrgName(await session.prompt(ORG_NAME_PROMPT), emailContent);
+    const raw = await session.prompt(buildOrgPrompt(emailContent));
+    const org = sanitizeOrgName(raw, emailContent);
+    // 補完が効かないときの切り分け用（どう答えて、なぜ不採用になったかを残す）
+    console.log('端末内AI 企業名の回答:', JSON.stringify(raw), '→ 採用:', org ?? '(なし)');
     if (!org) return title;
     return composeTitle(title, org);
   } catch (err) {
