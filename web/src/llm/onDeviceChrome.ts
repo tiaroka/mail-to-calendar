@@ -111,6 +111,69 @@ function parseJsonLoose(text: string): Record<string, unknown> {
   return JSON.parse(match[0]) as Record<string, unknown>;
 }
 
+// --- タイトルへの企業名補完 ---------------------------------------------
+// 小型モデルは抽出と整形を同時に指示しても従いきれず、企業名を落としたタイトル
+// （「取材のご案内」等）を返しがち。抽出の直後に「企業名だけ」を単一タスクとして
+// 聞き直し、本文に実在することを確認したうえでタイトル先頭へ補う。
+
+/** 企業名だけを尋ねる2回目のプロンプト（本文はセッション履歴に残っているため再送しない）。 */
+const ORG_NAME_PROMPT = `上のメール本文で、この予定を主催している企業名・サービス名・団体名を1つだけ出力してください。
+- 略称・通称が併記されている場合は略称を使ってください（例:「〇〇株式会社（ABC）」→ ABC）
+- 名前だけを出力し、説明・記号・句読点は付けないでください
+- 本文に企業名が書かれていない場合は NONE とだけ出力してください`;
+
+/** 企業名として採用しない回答（モデルが「無い」を言い換えるパターン）。 */
+const NO_ORG_ANSWER = /^(none|n\/a|なし|無し|不明|該当なし|ありません|記載なし)$/i;
+
+/**
+ * モデルの回答を企業名として使える形に整える。
+ * 本文に実在しない文字列はハルシネーションとみなし null を返す。
+ */
+export function sanitizeOrgName(raw: string, emailContent: string): string | null {
+  let name = (raw ?? '').trim().split('\n')[0].trim();
+  // 引用符・鉤括弧・句読点が重なって付く（例:「〇〇株式会社」。）ため、変化がなくなるまで剥がす
+  let prev = '';
+  while (prev !== name) {
+    prev = name;
+    name = name
+      .replace(/^["'`「『]+/, '')
+      .replace(/["'`」』]+$/, '')
+      .replace(/[。、．，.,:：]+$/, '')
+      .trim();
+  }
+  if (!name) return null;
+  // 名前ではなく文章を返してきた場合は捨てる
+  if (name.length > 30) return null;
+  if (NO_ORG_ANSWER.test(name)) return null;
+  // 本文に存在しない名前は補わない（サーバー側プロンプトと同じ方針）
+  if (!emailContent.includes(name)) return null;
+  return name;
+}
+
+/** 企業名をタイトル先頭へ付ける。既に含まれている場合はそのまま返す。 */
+export function composeTitle(title: string, org: string): string {
+  const base = title.trim();
+  if (!base) return org;
+  if (base.includes(org)) return base;
+  return `${org} ${base}`;
+}
+
+/** 抽出済みタイトルに企業名を補う。失敗しても元のタイトルを壊さない。 */
+async function refineTitleWithOrg(
+  session: LanguageModelSession,
+  title: string,
+  emailContent: string,
+): Promise<string> {
+  try {
+    const org = sanitizeOrgName(await session.prompt(ORG_NAME_PROMPT), emailContent);
+    if (!org) return title;
+    return composeTitle(title, org);
+  } catch (err) {
+    console.warn('端末内AIの企業名補完に失敗:', err);
+    return title;
+  }
+}
+
 /** 端末内モデルでメール本文から予定情報を抽出する（失敗時は例外）。 */
 export async function extractOnDevice(emailContent: string, now: Date = new Date()): Promise<EventInfo> {
   const lm = getLanguageModel();
@@ -134,8 +197,9 @@ export async function extractOnDevice(emailContent: string, now: Date = new Date
       text = await session.prompt(buildPrompt(emailContent, now));
     }
     const data = parseJsonLoose(text);
+    const title = (data.title as string) || '';
     return {
-      title: (data.title as string) || '',
+      title: await refineTitleWithOrg(session, title, emailContent),
       location: (data.location as string) || '',
       startTime: (data.startTime as string) || '',
       endTime: (data.endTime as string) || '',
